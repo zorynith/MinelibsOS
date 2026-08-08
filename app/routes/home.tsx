@@ -867,7 +867,7 @@ function BackupManagerModal({
                       className="p-1 text-zinc-400 hover:text-blue-500 transition disabled:opacity-50"
                       title="恢复"
                     >
-                      <Download className="h-3.5 w-3.5" />
+                      <RefreshCw className="h-3.5 w-3.5" />
                     </button>
                     <button
                       onClick={() => handleDelete(b)}
@@ -1759,13 +1759,27 @@ function SettingsModal({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="text-sm text-zinc-900 dark:text-zinc-100 font-semibold">审计日志</div>
-                <button
-                  onClick={fetchAuditLogs}
-                  disabled={auditLoading}
-                  className="px-3 py-1 text-xs font-medium rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-50 transition"
-                >
-                  {auditLoading ? '加载中...' : '刷新'}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={async () => {
+                      if (!confirm('确定清空所有审计日志？此操作不可撤销。')) return;
+                      try {
+                        const res = await fetch('/api/audit', { method: 'DELETE' });
+                        if (res.ok) { setAuditLogs([]); } else { const d = await res.json(); alert(d.error || '清空失败'); }
+                      } catch { alert('网络错误'); }
+                    }}
+                    className="px-3 py-1 text-xs font-medium rounded border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 disabled:opacity-50 transition"
+                  >
+                    清空
+                  </button>
+                  <button
+                    onClick={fetchAuditLogs}
+                    disabled={auditLoading}
+                    className="px-3 py-1 text-xs font-medium rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-50 transition"
+                  >
+                    {auditLoading ? '加载中...' : '刷新'}
+                  </button>
+                </div>
               </div>
               {auditError && (
                 <div className="text-xs text-red-500 dark:text-red-400 font-mono">{auditError}</div>
@@ -3504,9 +3518,33 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB, customDomain }: { 
 
   return (
     <div className="h-full flex flex-col">
+      {/* Breadcrumb row — separate on mobile */}
+      <div className="flex items-center gap-0.5 text-sm overflow-x-auto min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden py-1.5 px-4 border-b border-zinc-200 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40 md:hidden">
+        <button onClick={() => setPath("")} className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 font-medium text-zinc-600 hover:text-blue-600 dark:text-zinc-300 dark:hover:text-blue-400 shrink-0">
+          <Folder className="h-4 w-4 text-blue-500" />
+          {storage.name}
+        </button>
+        {breadcrumbs.map((part, i) => (
+          <span key={i} className="flex items-center shrink-0">
+            <ChevronRight className="h-4 w-4 text-zinc-300 dark:text-zinc-600" />
+            <button
+              onClick={() => navigateTo(breadcrumbs.slice(0, i + 1).join("/"))}
+              className="rounded px-1.5 py-1 text-zinc-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
+            >
+              {part}
+            </button>
+          </span>
+        ))}
+        {selectedKeys.size > 0 && (
+          <span className="ml-2 rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400 shrink-0">
+            已选 {selectedKeys.size} 项
+          </span>
+        )}
+      </div>
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-3 py-2 px-4 border-b border-zinc-200 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40 min-w-0">
-        <div className="flex items-center gap-0.5 text-sm overflow-x-auto min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {/* Breadcrumb — desktop only */}
+        <div className="hidden md:flex items-center gap-0.5 text-sm overflow-x-auto min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <button onClick={() => setPath("")} className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 font-medium text-zinc-600 hover:text-blue-600 dark:text-zinc-300 dark:hover:text-blue-400 shrink-0">
             <Folder className="h-4 w-4 text-blue-500" />
             {storage.name}

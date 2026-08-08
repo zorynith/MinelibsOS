@@ -1,7 +1,7 @@
 import type { Route } from "./+types/api.audit";
 import { initDatabase } from "~/lib/storage";
 import { requireAuth } from "~/lib/auth";
-import { getAuditLogs } from "~/lib/audit";
+import { getAuditLogs, clearAuditLogs } from "~/lib/audit";
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const db = context.cloudflare.env.DB;
@@ -29,4 +29,21 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   });
 
   return Response.json({ logs });
+}
+
+export async function action({ request, context }: Route.ActionArgs) {
+  const db = context.cloudflare.env.DB;
+  await initDatabase(db);
+
+  const { isAdmin } = await requireAuth(request, db, "admin");
+  if (!isAdmin) {
+    return Response.json({ error: "Unauthorized" }, { status: 403 });
+  }
+
+  if (request.method === "DELETE") {
+    const count = await clearAuditLogs(db);
+    return Response.json({ success: true, count });
+  }
+
+  return Response.json({ error: "Method not allowed" }, { status: 405 });
 }

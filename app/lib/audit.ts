@@ -108,3 +108,8 @@ export async function getAuditLogs(
   const result = await db.prepare(query).bind(...bindings).all<AuditLogRow>();
   return result.results || [];
 }
+
+export async function clearAuditLogs(db: D1Database): Promise<number> {
+  const result = await db.prepare("DELETE FROM audit_logs").run();
+  return result.meta?.changes ?? 0;
+}
