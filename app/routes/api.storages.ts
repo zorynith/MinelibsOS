@@ -328,9 +328,14 @@ async function backupTelegramIndexToChat(
       fileCount: backupData.files.length,
     });
 
+    console.log("[backupTelegramIndexToChat] saving backupList:", JSON.stringify(backupList));
     await updateStorage(db, storageId, {
       saving: { ...existingSaving, backupList, backupMessageId: newMessageId },
     });
+
+    // 验证写入
+    const verify = await getStorageById(db, storageId);
+    console.log("[backupTelegramIndexToChat] verify saving.backupList:", JSON.stringify(verify?.saving?.backupList));
 
     return { ok: true, messageId: newMessageId };
   } catch (err) {
@@ -353,10 +358,13 @@ async function getTelegramBackupList(db: D1Database, storageId: number): Promise
  */
 async function getAllTelegramBackupLists(db: D1Database): Promise<Array<{ messageId: number; name: string; date: string; fileCount: number; storageId: number; storageName: string }>> {
   const storages = await getAllStorages(db);
+  console.log("[getAllTelegramBackupLists] total storages:", storages.length);
   const allBackups: Array<{ messageId: number; name: string; date: string; fileCount: number; storageId: number; storageName: string }> = [];
   for (const s of storages) {
     if (s.type === "telegram") {
+      console.log("[getAllTelegramBackupLists] storage:", s.id, s.name, "saving:", JSON.stringify(s.saving).substring(0, 200));
       const list = (s.saving?.backupList as Array<any>) || [];
+      console.log("[getAllTelegramBackupLists] backupList length:", list.length);
       for (const b of list) {
         allBackups.push({ ...b, storageId: s.id, storageName: s.name });
       }
@@ -698,6 +706,7 @@ export async function action({ request, context }: Route.ActionArgs) {
       }
       // 全局：获取所有 Telegram 存储的备份
       const list = await getAllTelegramBackupLists(db);
+      console.log("[list-telegram-backups] global list:", JSON.stringify(list));
       return Response.json({ backups: list });
     }
 
