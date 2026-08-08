@@ -556,6 +556,208 @@ function LoginModal({ onLogin, onClose }: { onLogin: () => void; onClose: () => 
   );
 }
 
+type BackupItem = {
+  messageId: number;
+  name: string;
+  date: string;
+  fileCount: number;
+  storageId: number;
+  storageName: string;
+};
+
+function BackupManagerModal({
+  onClose,
+  storages,
+  onRefresh,
+}: {
+  onClose: () => void;
+  storages: StorageInfo[];
+  onRefresh: () => void;
+}) {
+  const [backups, setBackups] = useState<BackupItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [backupName, setBackupName] = useState("");
+  const [selectedStorageId, setSelectedStorageId] = useState<number | null>(null);
+
+  const loadBackups = async () => {
+    try {
+      const res = await fetch('/api/storages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list-telegram-backups' }),
+      });
+      const data = await res.json();
+      setBackups(data.backups || []);
+    } catch {}
+  };
+
+  useEffect(() => { loadBackups(); }, []);
+
+  const telegramStorages = storages.filter(s => s.type === 'telegram');
+
+  const handleBackup = async () => {
+    const sid = selectedStorageId || telegramStorages[0]?.id;
+    if (!sid) { alert('没有 Telegram 存储可备份'); return; }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/storages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'backup-telegram-index', storageId: sid, backupName: backupName.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setBackupName('');
+        await loadBackups();
+        onRefresh();
+        alert('备份完成！');
+      } else {
+        alert(data.error || '备份失败');
+      }
+    } catch {
+      alert('网络错误');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRestore = async (item: BackupItem) => {
+    if (!confirm(`从「${item.name}」(${item.storageName}) 恢复索引？\n\n${item.fileCount} 个文件将被恢复。`)) return;
+    setLoading(true);
+    try {
+      const res = await fetch('/api/storages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'restore-telegram-from-chat', storageId: item.storageId, backupMessageId: item.messageId }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`恢复了 ${data.count || 0} 个文件`);
+        onRefresh();
+      } else {
+        alert(data.error || '恢复失败');
+      }
+    } catch {
+      alert('网络错误');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (item: BackupItem) => {
+    if (!confirm(`删除备份「${item.name}」？\n\n此操作不可撤销。`)) return;
+    setLoading(true);
+    try {
+      const res = await fetch('/api/storages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete-telegram-backup', storageId: item.storageId, messageId: item.messageId }),
+      });
+      if (res.ok) {
+        await loadBackups();
+        onRefresh();
+      } else {
+        const data = await res.json();
+        alert(data.error || '删除失败');
+      }
+    } catch {
+      alert('网络错误');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-700 flex items-center justify-between sticky top-0 bg-white dark:bg-zinc-900 rounded-t-xl">
+          <span className="text-zinc-900 dark:text-zinc-100 font-semibold text-sm">备份管理</span>
+          <button onClick={onClose} className="icon-btn h-7 w-7" aria-label="关闭"><X /></button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          {/* 备份区域 */}
+          <div className="bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-4 border border-zinc-200 dark:border-zinc-700">
+            <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-3">创建备份</div>
+            {telegramStorages.length > 1 && (
+              <select
+                value={selectedStorageId || telegramStorages[0]?.id || ''}
+                onChange={(e) => setSelectedStorageId(Number(e.target.value))}
+                className="w-full px-3 py-2 mb-2 text-sm border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 rounded"
+              >
+                {telegramStorages.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            )}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={backupName}
+                onChange={(e) => setBackupName(e.target.value)}
+                placeholder="备份名称"
+                className="flex-1 px-3 py-2 text-sm border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 rounded focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+              <button
+                onClick={handleBackup}
+                disabled={loading}
+                className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white text-sm rounded disabled:opacity-50 transition whitespace-nowrap font-medium"
+              >
+                备份到 Telegram
+              </button>
+            </div>
+          </div>
+
+          {/* 备份列表 */}
+          <div>
+            <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-3">历史备份</div>
+            {backups.length === 0 ? (
+              <div className="text-sm text-zinc-400 py-8 text-center">
+                暂无备份，请先创建备份
+              </div>
+            ) : (
+              <div className="border border-zinc-200 dark:border-zinc-700 rounded-lg divide-y divide-zinc-100 dark:divide-zinc-700 overflow-hidden">
+                {backups.map((b) => (
+                  <div
+                    key={`${b.storageId}-${b.messageId}`}
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate">{b.name}</div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-xs text-zinc-400">{b.storageName}</span>
+                        <span className="text-zinc-300 dark:text-zinc-600">·</span>
+                        <span className="text-xs text-zinc-400">{b.fileCount} 文件</span>
+                        <span className="text-zinc-300 dark:text-zinc-600">·</span>
+                        <span className="text-xs text-zinc-400">{new Date(b.date).toLocaleString("zh-CN")}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleRestore(b)}
+                      disabled={loading}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded disabled:opacity-50 transition whitespace-nowrap font-medium"
+                    >
+                      恢复
+                    </button>
+                    <button
+                      onClick={() => handleDelete(b)}
+                      disabled={loading}
+                      className="p-1.5 text-zinc-400 hover:text-red-500 transition disabled:opacity-50"
+                      title="删除"
+                    >
+                      <Trash2 />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StorageModal({
   storage,
   onSave,
@@ -600,22 +802,6 @@ function StorageModal({
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [showBackupPanel, setShowBackupPanel] = useState(false);
-  const [backupName, setBackupName] = useState("");
-  const [backupList, setBackupList] = useState<Array<{ messageId: number; name: string; date: string; fileCount: number }>>([]);
-
-  const loadBackupList = async () => {
-    if (!storage?.id) return;
-    try {
-      const res = await fetch('/api/storages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'list-telegram-backups', storageId: storage.id }),
-      });
-      const data = await res.json();
-      setBackupList(data.backups || []);
-    } catch {}
-  };
 
   const driveConfig = driveConfigMap[formData.type || ""];
   const isS3 = formData.type === "s3";
@@ -756,97 +942,6 @@ function StorageModal({
       }
     } catch {
       setError("网络错误");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRestoreFromChat = async (backupMessageId?: number) => {
-    if (!storage || !storage.id) {
-      alert('请先保存存储。');
-      return;
-    }
-    setLoading(true);
-    setShowBackupPanel(false);
-    try {
-      const body: any = { action: 'restore-telegram-from-chat', storageId: storage.id };
-      if (backupMessageId) body.backupMessageId = backupMessageId;
-      const res = await fetch('/api/storages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = (await res.json()) as any;
-      if (res.ok) {
-        const msg = data.details
-          ? `${data.details}\n恢复了 ${data.count || 0} 个文件`
-          : `从聊天恢复了 ${data.count || 0} 个文件${data.fromBackup ? '（来自备份文件）' : ''}，请刷新列表。`;
-        alert(msg);
-        if (data.count > 0) onSave();
-      } else {
-        alert(data.error || '恢复失败');
-      }
-    } catch {
-      alert('网络错误');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleBackupIndexToChat = async () => {
-    if (!storage || !storage.id) {
-      alert('请先保存存储。');
-      return;
-    }
-    setLoading(true);
-    setShowBackupPanel(false);
-    try {
-      const res = await fetch('/api/storages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'backup-telegram-index', storageId: storage.id, backupName: backupName.trim() || undefined }),
-      });
-      const data = (await res.json()) as any;
-      if (res.ok) {
-        alert(`索引备份完成！${data.messageId ? `消息 ID: ${data.messageId}` : ''}`);
-        onSave();
-      } else {
-        alert(data.error || '备份失败');
-      }
-    } catch {
-      alert('网络错误');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRestoreFromDb = async () => {
-    if (!storage || !storage.id) {
-      alert('请先保存存储。');
-      return;
-    }
-    const chatId = (formData.config || {}).chatId || (formData.config || {}).chat_id || storage.config?.chatId || storage.config?.chat_id;
-    if (!chatId) {
-      alert('未配置 chatId，无法恢复。');
-      return;
-    }
-    setLoading(true);
-    setShowBackupPanel(false);
-    try {
-      const res = await fetch('/api/storages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'restore-telegram', storageId: storage.id, chatId }),
-      });
-      if (res.ok) {
-        alert('从 D1 数据库恢复完成，请刷新列表。');
-        onSave();
-      } else {
-        const data = (await res.json().catch(() => ({}))) as any;
-        alert(data.error || '恢复失败');
-      }
-    } catch {
-      alert('网络错误');
     } finally {
       setLoading(false);
     }
@@ -1044,98 +1139,6 @@ function StorageModal({
             >
               取消
             </button>
-            {storage && storage.type === 'telegram' && (
-              <div className="flex-1 relative">
-                <button
-                  type="button"
-                  onClick={() => { setShowBackupPanel(!showBackupPanel); if (!showBackupPanel) loadBackupList(); }}
-                  disabled={loading}
-                  className="w-full py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white text-sm disabled:opacity-50 transition rounded whitespace-nowrap"
-                >
-                  {loading ? '处理中…' : '备份 / 恢复'}
-                </button>
-                {showBackupPanel && (
-                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-2xl p-4 z-50 w-[340px]">
-                    {/* === 备份区域 === */}
-                    <div className="mb-4">
-                      <div className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wide mb-2">备份</div>
-                      <div className="space-y-2">
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={backupName}
-                            onChange={(e) => setBackupName(e.target.value)}
-                            placeholder="备份名称（可选）"
-                            className="flex-1 px-2.5 py-2 text-sm border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 rounded focus:outline-none focus:ring-2 focus:ring-green-500"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleBackupIndexToChat}
-                          disabled={loading}
-                          className="w-full py-2 px-4 bg-green-600 hover:bg-green-500 text-white text-sm rounded disabled:opacity-50 transition whitespace-nowrap font-medium"
-                        >
-                          备份到 Telegram
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* 分割线 */}
-                    <div className="border-t border-zinc-200 dark:border-zinc-700 my-3" />
-
-                    {/* === 恢复区域 === */}
-                    <div>
-                      <div className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wide mb-2">恢复</div>
-                      <div className="space-y-2">
-                        <button
-                          type="button"
-                          onClick={handleRestoreFromDb}
-                          disabled={loading}
-                          className="w-full py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white text-sm rounded disabled:opacity-50 transition whitespace-nowrap font-medium"
-                        >
-                          从 D1 数据库恢复
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleRestoreFromChat()}
-                          disabled={loading}
-                          className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded disabled:opacity-50 transition whitespace-nowrap font-medium"
-                        >
-                          从 Telegram 聊天恢复
-                        </button>
-
-                        {/* 从备份文件恢复 */}
-                        {backupList.length > 0 && (
-                          <div>
-                            <div className="text-xs text-zinc-500 mb-1.5 mt-1">从备份文件恢复：</div>
-                            <div className="max-h-40 overflow-y-auto border border-zinc-200 dark:border-zinc-700 rounded-lg divide-y divide-zinc-100 dark:divide-zinc-700">
-                              {backupList.map((b) => (
-                                <button
-                                  key={b.messageId}
-                                  type="button"
-                                  onClick={() => handleRestoreFromChat(b.messageId)}
-                                  disabled={loading}
-                                  className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-700 transition disabled:opacity-50"
-                                >
-                                  <span className="flex-1 text-sm text-zinc-700 dark:text-zinc-300">{b.name}</span>
-                                  <span className="text-xs text-zinc-400">{b.fileCount} 文件</span>
-                                  <span className="text-xs text-zinc-400 whitespace-nowrap">{new Date(b.date).toLocaleDateString("zh-CN")}</span>
-                                  <svg className="w-4 h-4 text-purple-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        {backupList.length === 0 && (
-                          <div className="text-xs text-zinc-400 py-1">暂无备份文件，请先「备份到 Telegram」</div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
             <button
               type="submit"
               disabled={loading}
@@ -4170,6 +4173,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   const [selectedStorage, setSelectedStorage] = useState<StorageInfo | null>(null);
   const [showLogin, setShowLogin] = useState(false);
   const [showStorageForm, setShowStorageForm] = useState(false);
+  const [showBackupManager, setShowBackupManager] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAnnouncement, setShowAnnouncement] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
@@ -4353,14 +4357,24 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             <span className="text-xs text-zinc-500 font-medium uppercase tracking-wider whitespace-nowrap">存储列表</span>
             <div className="flex items-center gap-1">
               {isAdmin && (
-                <button
-                  onClick={() => { setEditingStorage(null); setShowStorageForm(true); }}
-                  className="icon-btn h-7 w-7 text-blue-500 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-500/10"
-                  title="添加存储"
-                  aria-label="添加存储"
-                >
-                  <Plus />
-                </button>
+                <>
+                  <button
+                    onClick={() => { setEditingStorage(null); setShowStorageForm(true); }}
+                    className="icon-btn h-7 w-7 text-blue-500 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-500/10"
+                    title="添加存储"
+                    aria-label="添加存储"
+                  >
+                    <Plus />
+                  </button>
+                  <button
+                    onClick={() => setShowBackupManager(true)}
+                    className="icon-btn h-7 w-7 text-amber-500 hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-amber-500/10"
+                    title="备份管理"
+                    aria-label="备份管理"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  </button>
+                </>
               )}
               <button
                 onClick={() => setSidebarCollapsed(true)}
@@ -4489,6 +4503,13 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           storage={editingStorage || undefined}
           onSave={() => { setShowStorageForm(false); setEditingStorage(null); refreshStorages(); }}
           onCancel={() => { setShowStorageForm(false); setEditingStorage(null); }}
+        />
+      )}
+      {showBackupManager && (
+        <BackupManagerModal
+          onClose={() => setShowBackupManager(false)}
+          storages={storages}
+          onRefresh={() => refreshStorages()}
         />
       )}
       {showSettings && (

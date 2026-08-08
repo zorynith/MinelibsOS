@@ -336,12 +336,63 @@ async function backupTelegramIndexToChat(
 }
 
 /**
- * 获取备份列表
+ * 获取备份列表（指定存储）
  */
-async function getTelegramBackupList(db: D1Database, storageId: number): Promise<Array<{ messageId: number; name: string; date: string; fileCount: number }>> {
+async function getTelegramBackupList(db: D1Database, storageId: number): Promise<Array<{ messageId: number; name: string; date: string; fileCount: number; storageId: number; storageName: string }>> {
   const storage = await getStorageById(db, storageId);
   if (!storage) return [];
-  return (storage.saving?.backupList as Array<any>) || [];
+  const list = (storage.saving?.backupList as Array<any>) || [];
+  return list.map((b: any) => ({ ...b, storageId, storageName: storage.name }));
+}
+
+/**
+ * 获取所有 Telegram 存储的全局备份列表
+ */
+async function getAllTelegramBackupLists(db: D1Database): Promise<Array<{ messageId: number; name: string; date: string; fileCount: number; storageId: number; storageName: string }>> {
+  const storages = await getAllStorages(db);
+  const allBackups: Array<{ messageId: number; name: string; date: string; fileCount: number; storageId: number; storageName: string }> = [];
+  for (const s of storages) {
+    if (s.type === "telegram") {
+      const list = (s.saving?.backupList as Array<any>) || [];
+      for (const b of list) {
+        allBackups.push({ ...b, storageId: s.id, storageName: s.name });
+      }
+    }
+  }
+  allBackups.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  return allBackups;
+}
+
+/**
+ * 删除备份记录
+ */
+async function deleteTelegramBackup(db: D1Database, storageId: number, messageId: number): Promise<boolean> {
+  const storage = await getStorageById(db, storageId);
+  if (!storage) return false;
+  const list = (storage.saving?.backupList as Array<any>) || [];
+  const newList = list.filter((b: any) => b.messageId !== messageId);
+  if (newList.length === list.length) return false;
+  
+  // 如果删除的是当前默认备份，清除 backupMessageId
+  const existingSaving = storage.saving || {};
+  const updateData: Record<string, any> = { saving: { ...existingSaving, backupList: newList } };
+  if (existingSaving.backupMessageId === messageId) {
+    updateData.saving.backupMessageId = null;
+  }
+  await updateStorage(db, storageId, updateData);
+  
+  // 尝试删除 Telegram 上的备份消息
+  const botToken = storage.config?.botToken;
+  const chatId = storage.config?.chatId || storage.config?.chat_id;
+  if (botToken && chatId) {
+    const apiBase = storage.config?.apiBase || "https://api.telegram.org";
+    await fetch(`${apiBase}/bot${botToken}/deleteMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
+    }).catch(() => {});
+  }
+  return true;
 }
 
 async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null, storageId: number) {
@@ -628,14 +679,26 @@ export async function action({ request, context }: Route.ActionArgs) {
       }
     }
 
-    // 获取备份列表
+    // 获取备份列表（指定存储或全局）
     if (actionType === "list-telegram-backups") {
       const { storageId } = body as { storageId?: number };
-      if (!storageId) {
-        return Response.json({ error: "storageId is required" }, { status: 400 });
+      if (storageId) {
+        const list = await getTelegramBackupList(db, Number(storageId));
+        return Response.json({ backups: list });
       }
-      const list = await getTelegramBackupList(db, Number(storageId));
+      // 全局：获取所有 Telegram 存储的备份
+      const list = await getAllTelegramBackupLists(db);
       return Response.json({ backups: list });
+    }
+
+    // 删除备份
+    if (actionType === "delete-telegram-backup") {
+      const { storageId, messageId } = body as { storageId?: number; messageId?: number };
+      if (!storageId || !messageId) {
+        return Response.json({ error: "storageId and messageId are required" }, { status: 400 });
+      }
+      const ok = await deleteTelegramBackup(db, Number(storageId), Number(messageId));
+      return Response.json({ success: ok });
     }
 
     // 备份索引到 Telegram 聊天
