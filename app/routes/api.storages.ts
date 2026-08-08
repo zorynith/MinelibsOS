@@ -37,14 +37,13 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
       const row = r as Record<string, any>;
       const id = String(row.file_id || "");
       const fileName = String(row.file_name || id);
-      const folderPath = String(row.folder_path || "").replace(/\/+$/, "");
+      const rawFolderPath = String(row.folder_path || "");
+      const folderPath = rawFolderPath.replace(/\/+$/, "");
       // 构建文件的存储 key：优先使用 folder_path，如果为空则尝试从 file_name 推断路径
-      // （上传通知中已标明路径，如 "docs/sub/报告.pdf"，恢复时据此重建文件夹）
       let key: string;
       if (folderPath) {
         key = `${folderPath}/${fileName}`;
       } else if (fileName.includes("/")) {
-        // 文件名中包含路径分隔符，说明上传通知中标明了路径
         key = fileName;
         const parentPath = fileName.substring(0, fileName.lastIndexOf("/"));
         if (parentPath) folders.add(parentPath);
@@ -55,28 +54,29 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
       newObjects[key] = {
         kind: "file",
         path: key,
-        downloadUrl: row.download_url || "",
+        downloadUrl: String(row.download_url || ""),
         contentType: "application/octet-stream",
-        size: row.size || 0,
-        lastModified: row.updated_at || new Date().toISOString(),
+        size: Number(row.size) || 0,
+        lastModified: String(row.updated_at || new Date().toISOString()),
         metadata: {
-          telegramFileId: row.file_id,
-          telegramMessageId: row.message_id || null,
+          telegramFileId: String(row.file_id || ""),
+          telegramMessageId: row.message_id ? Number(row.message_id) : null,
           fileName: fileName || null,
           folderPath: folderPath || null,
         },
       };
     }
 
+    console.log(`[rebuildTelegram] Found ${Object.keys(newObjects).length} objects from ${rows.results?.length || 0} rows`);
+
     if (Object.keys(newObjects).length === 0) return;
 
     // Add directory markers for each folder, including parent folders
     for (const f of Array.from(folders)) {
-      // 递归添加所有父级目录
-      const parts = f.split("/");
+      const parts = f.split("/").filter(Boolean);
       for (let i = 0; i < parts.length; i++) {
         const ancestor = parts.slice(0, i + 1).join("/");
-        const dirKey = ancestor.endsWith("/") ? ancestor : `${ancestor}/`;
+        const dirKey = `${ancestor}/`;
         if (!newObjects[dirKey]) {
           newObjects[dirKey] = {
             kind: "directory",
@@ -98,7 +98,6 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
       if (!merged[k]) {
         merged[k] = v;
       } else {
-        // merge metadata/update fields without removing existing props
         merged[k] = {
           ...merged[k],
           downloadUrl: v.downloadUrl || merged[k].downloadUrl,
@@ -110,7 +109,9 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
       }
     }
 
+    console.log(`[rebuildTelegram] Merged ${Object.keys(merged).length} objects, saving to storage ${storageId}`);
     await updateStorage(db, storageId, { saving: { objects: merged } });
+    console.log(`[rebuildTelegram] Successfully saved to storage ${storageId}`);
   } catch (err) {
     console.error("Failed to rebuild telegram saving from db:", err);
   }
