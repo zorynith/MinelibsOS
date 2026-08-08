@@ -3196,7 +3196,7 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB, customDomain }: { 
   return (
     <div className="h-full flex flex-col">
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-3 py-2 px-4 border-b border-zinc-200 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40">
+      <div className="flex items-center justify-between gap-3 py-2 px-4 border-b border-zinc-200 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40 min-w-0">
         <div className="flex items-center gap-0.5 text-sm overflow-x-auto min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <button onClick={() => setPath("")} className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 font-medium text-zinc-600 hover:text-blue-600 dark:text-zinc-300 dark:hover:text-blue-400 shrink-0">
             <Folder className="h-4 w-4 text-blue-500" />
@@ -3220,7 +3220,7 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB, customDomain }: { 
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1 shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex items-center gap-1 overflow-x-auto min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
             <input

@@ -28,15 +28,16 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
     const rows = await db
       .prepare("SELECT file_id, message_id, file_name, folder_path, size, download_url, updated_at, storage_ids FROM telegram_files WHERE chat_id = ? ORDER BY updated_at DESC")
       .bind(String(chatId))
-      .all<{ file_id: string; message_id: number | null; file_name: string; folder_path: string | null; size: number | null; download_url: string | null; updated_at: string; storage_ids: string }>();
+      .all();
 
     // Build map of new objects from DB and collect folders
     const newObjects: Record<string, any> = {};
     const folders = new Set<string>();
     for (const r of rows.results || []) {
-      const id = String(r.file_id || "");
-      const fileName = r.file_name || id;
-      const folderPath = (r.folder_path || "").replace(/\/+$/, "");
+      const row = r as Record<string, any>;
+      const id = String(row.file_id || "");
+      const fileName = String(row.file_name || id);
+      const folderPath = String(row.folder_path || "").replace(/\/+$/, "");
       // 构建文件的存储 key：优先使用 folder_path，如果为空则尝试从 file_name 推断路径
       // （上传通知中已标明路径，如 "docs/sub/报告.pdf"，恢复时据此重建文件夹）
       let key: string;
@@ -54,13 +55,13 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
       newObjects[key] = {
         kind: "file",
         path: key,
-        downloadUrl: r.download_url || "",
+        downloadUrl: row.download_url || "",
         contentType: "application/octet-stream",
-        size: r.size || 0,
-        lastModified: r.updated_at || new Date().toISOString(),
+        size: row.size || 0,
+        lastModified: row.updated_at || new Date().toISOString(),
         metadata: {
-          telegramFileId: r.file_id,
-          telegramMessageId: r.message_id || null,
+          telegramFileId: row.file_id,
+          telegramMessageId: row.message_id || null,
           fileName: fileName || null,
           folderPath: folderPath || null,
         },
