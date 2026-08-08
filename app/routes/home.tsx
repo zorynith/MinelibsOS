@@ -1519,6 +1519,7 @@ function SettingsModal({
               </div>
 
               {/* Domain Setting */}
+              {isAdmin && (
               <div className="border-t border-zinc-200 dark:border-zinc-700 pt-4">
                 <div className="text-sm text-zinc-900 dark:text-zinc-100 font-semibold">域名设置</div>
                 <div className="text-xs text-zinc-500 mt-1 mb-2">设置本站域名，分享链接将使用此域名。留空则使用当前访问域名。</div>
@@ -1561,6 +1562,7 @@ function SettingsModal({
                   </div>
                 )}
               </div>
+              )}
 
               {/* Announcement */}
               {siteAnnouncement && (
@@ -4498,14 +4500,16 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             >
               {isDark ? <Sun /> : <Moon />}
             </button>
-            <button
-              onClick={() => setShowShareManager(true)}
-              className="icon-btn h-8 w-8"
-              title="分享管理"
-              aria-label="分享管理"
-            >
-              <Share2 />
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => setShowShareManager(true)}
+                className="icon-btn h-8 w-8"
+                title="分享管理"
+                aria-label="分享管理"
+              >
+                <Share2 />
+              </button>
+            )}
             <button
               onClick={() => setShowSettings(true)}
               className="icon-btn h-8 w-8"
