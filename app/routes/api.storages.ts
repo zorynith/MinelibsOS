@@ -26,37 +26,36 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
   if (!chatId) return;
   try {
     const rows = await db
-      .prepare("SELECT file_id, message_id, file_name, folder_path, size, download_url, updated_at, storage_ids FROM telegram_files WHERE chat_id = ? ORDER BY updated_at DESC")
+      .prepare("SELECT file_id, message_id, file_name, size, download_url, updated_at, storage_ids FROM telegram_files WHERE chat_id = ? ORDER BY updated_at DESC")
       .bind(String(chatId))
-      .all();
-
-    if (!rows.results || rows.results.length === 0) return;
+      .all<{ file_id: string; message_id: number | null; file_name: string; size: number | null; download_url: string | null; updated_at: string; storage_ids: string }>();
 
     // Build map of new objects from DB and collect folders
     const newObjects: Record<string, any> = {};
     const folders = new Set<string>();
-    for (const r of rows.results) {
-      const row = r as any;
-      const id = String(row.file_id || "");
-      const fileName = String(row.file_name || id);
-      const folderPath = (row.folder_path || "").replace(/\/+$/, "");
-      const key = folderPath ? `${folderPath}/${fileName}` : fileName;
-      if (folderPath) folders.add(folderPath);
+    for (const r of rows.results || []) {
+      const id = String(r.file_id || "");
+      const fileName = r.file_name || id;
+      const folderPath = (r as any).folder_path || "";
+      const key = folderPath ? `${folderPath.replace(/\/+$/, "")}/${fileName}` : fileName;
+      if (folderPath) folders.add(folderPath.replace(/\/+$/, ""));
       newObjects[key] = {
         kind: "file",
         path: key,
-        downloadUrl: String(row.download_url || ""),
+        downloadUrl: r.download_url || "",
         contentType: "application/octet-stream",
-        size: Number(row.size) || 0,
-        lastModified: String(row.updated_at || new Date().toISOString()),
+        size: r.size || 0,
+        lastModified: r.updated_at || new Date().toISOString(),
         metadata: {
-          telegramFileId: String(row.file_id || ""),
-          telegramMessageId: row.message_id ? Number(row.message_id) : null,
+          telegramFileId: r.file_id,
+          telegramMessageId: r.message_id || null,
           fileName: fileName || null,
           folderPath: folderPath || null,
         },
       };
     }
+
+    if (Object.keys(newObjects).length === 0) return;
 
     // Add directory markers for each folder
     for (const f of Array.from(folders)) {
@@ -81,6 +80,7 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
       if (!merged[k]) {
         merged[k] = v;
       } else {
+        // merge metadata/update fields without removing existing props
         merged[k] = {
           ...merged[k],
           downloadUrl: v.downloadUrl || merged[k].downloadUrl,
