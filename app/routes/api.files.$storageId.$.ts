@@ -38,6 +38,55 @@ async function persistClientState(
     return;
   }
   await updateStorage(db, storageId, input);
+
+  // If this is a Telegram storage client, mirror object metadata into a global
+  // telegram_files table so that files can be discovered even after storage
+  // records are recreated or the saving_json is lost.
+  try {
+    // detect by client type string (RegistryBackedStorageClient sets this.type)
+    const clientType = (client as any).type;
+    if (clientType === "telegram" && updates.saving && updates.saving.objects && typeof updates.saving.objects === "object") {
+      const objects = updates.saving.objects as Record<string, any>;
+      for (const [rawKey, entry] of Object.entries(objects)) {
+        if (!entry || typeof entry !== "object") continue;
+        const metadata = entry.metadata || {};
+        const fileId = metadata.telegramFileId || null;
+        const messageId = metadata.telegramMessageId ? Number(metadata.telegramMessageId) : null;
+        const downloadUrl = entry.downloadUrl || null;
+        const size = entry.size ? Number(entry.size) : null;
+        const fileName = rawKey.split('/').pop() || null;
+        if (!fileId) continue;
+
+        // Upsert into telegram_files; maintain a JSON array of storage ids referencing this file
+        const existing = await db.prepare("SELECT storage_ids FROM telegram_files WHERE file_id = ?").bind(fileId).first<{ storage_ids: string }>();
+        let storageIds: string[] = [];
+        if (existing && existing.storage_ids) {
+          try {
+            storageIds = JSON.parse(existing.storage_ids || "[]");
+            if (!Array.isArray(storageIds)) storageIds = [];
+          } catch { storageIds = []; }
+        }
+        if (!storageIds.includes(String(storageId))) storageIds.push(String(storageId));
+
+        await db.prepare(
+          `INSERT INTO telegram_files (file_id, chat_id, message_id, file_name, size, download_url, storage_ids, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(file_id) DO UPDATE SET
+             chat_id = excluded.chat_id,
+             message_id = excluded.message_id,
+             file_name = excluded.file_name,
+             size = excluded.size,
+             download_url = excluded.download_url,
+             storage_ids = excluded.storage_ids,
+             updated_at = datetime('now')`
+        )
+        .bind(fileId, (metadata.chatId || metadata.chat_id || (client as any).config?.chatId || null), messageId, fileName, size, downloadUrl, JSON.stringify(storageIds))
+        .run();
+      }
+    }
+  } catch (err) {
+    console.error("Failed to mirror telegram metadata:", err);
+  }
 }
 
 async function withClientState<T>(

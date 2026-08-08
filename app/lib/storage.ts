@@ -341,6 +341,16 @@ export async function initDatabase(db: D1Database): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)`,
     `CREATE INDEX IF NOT EXISTS idx_shares_token ON shares(share_token)`,
     `CREATE INDEX IF NOT EXISTS idx_shares_storage_id ON shares(storage_id)`,
+    `CREATE TABLE IF NOT EXISTS telegram_files (
+      file_id TEXT PRIMARY KEY,
+      chat_id TEXT,
+      message_id INTEGER,
+      file_name TEXT,
+      size INTEGER,
+      download_url TEXT,
+      storage_ids TEXT DEFAULT '[]',
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`,
   ];
   for (const stmt of ddl) {
     await db.prepare(stmt).run();
