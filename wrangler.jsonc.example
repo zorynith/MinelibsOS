@@ -4,15 +4,15 @@
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "clist",
+  "name": "mbos",
   "main": "./workers/app.ts",
   "compatibility_date": "2025-04-04",
   "vars": {
     "VALUE_FROM_CLOUDFLARE": "Hello from Cloudflare",
     "ADMIN_USERNAME": "admin",
     "ADMIN_PASSWORD": "changeme",
-    "SITE_TITLE": "CList",
-    "SITE_ANNOUNCEMENT": "Welcome to CList storage service!",
+    "SITE_TITLE": "Minelibs",
+    "SITE_ANNOUNCEMENT": "Welcome to Minelibs storage service!",
     "CHUNK_SIZE_MB": "10",
     "WEBDAV_ENABLED": "false",
     "WEBDAV_USERNAME": "webdav",
@@ -21,7 +21,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "clist",
+      "database_name": "mbos",
       "database_id": "00000000-0000-0000-0000-000000000000"
     }
   ]

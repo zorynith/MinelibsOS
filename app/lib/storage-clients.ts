@@ -71,6 +71,98 @@ function readStateObjects(value: unknown): Record<string, any> {
   }, {});
 }
 
+function normalizeTelegramApiBase(raw: unknown): string {
+  if (!raw || typeof raw !== "string") {
+    return "https://api.telegram.org";
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return "https://api.telegram.org";
+  }
+  try {
+    return new URL(trimmed).toString().replace(/\/+$|\/?$/, "");
+  } catch {
+    return trimmed.replace(/\/+$|\/?$/, "");
+  }
+}
+
+function buildTelegramBotApiUrl(apiBase: string, token: string, method: string) {
+  const normalizedMethod = String(method || "").trim().replace(/^\/+/, "");
+  return `${apiBase}/bot${token}/${normalizedMethod}`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(2)} ${units[unitIndex]}`;
+}
+
+function buildTelegramUploadNoticeText({
+  fileName,
+  fileSize,
+  downloadUrl,
+}: {
+  fileName: string;
+  fileSize: number;
+  downloadUrl: string;
+}) {
+  const safeName = fileName || "unnamed";
+  return [
+    "文件上传完成",
+    `名称: ${safeName}`,
+    `大小: ${formatBytes(fileSize)}`,
+    `下载链接: ${downloadUrl || "无"}`,
+  ].join("\n");
+}
+
+async function sendTelegramUploadNotice(
+  botBase: string,
+  token: string,
+  chatId: string,
+  text: string,
+  replyToMessageId?: number | null
+) {
+  const payload: Record<string, any> = {
+    chat_id: chatId,
+    text,
+    disable_web_page_preview: true,
+  };
+  if (replyToMessageId) {
+    payload.reply_to_message_id = Number(replyToMessageId);
+    payload.allow_sending_without_reply = true;
+  }
+
+  const url = buildTelegramBotApiUrl(botBase, token, "sendMessage");
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const json = (await response.json().catch(() => ({}))) as Record<string, any>;
+  if (response.ok && json.ok) {
+    return { ok: true, json };
+  }
+  if (replyToMessageId) {
+    const retryPayload = { ...payload };
+    delete retryPayload.reply_to_message_id;
+    delete retryPayload.allow_sending_without_reply;
+    const retryResponse = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(retryPayload),
+    });
+    const retryJson = (await retryResponse.json().catch(() => ({}))) as Record<string, any>;
+    return { ok: retryResponse.ok && retryJson.ok, json: retryJson };
+  }
+  return { ok: false, json };
+}
+
 class RegistryBackedStorageClient {
   protected readonly type: string;
   protected readonly config: Record<string, any>;
@@ -245,11 +337,7 @@ export class TelegramStorageClient extends RegistryBackedStorageClient {
   }
 
   private getBotBase(): string {
-    const raw = String(this.config.apiBase || this.config.baseUrl || "https://api.telegram.org").trim();
-    if (!raw) {
-      return "https://api.telegram.org";
-    }
-    return raw.replace(/\/+$/, "");
+    return normalizeTelegramApiBase(this.config.apiBase || this.config.baseUrl || "https://api.telegram.org");
   }
 
   private getBotToken(): string {
@@ -258,6 +346,23 @@ export class TelegramStorageClient extends RegistryBackedStorageClient {
 
   private getChatId(): string {
     return String(this.config.chatId || "").trim();
+  }
+
+  private shouldNotifyUpload(): boolean {
+    const rawValue = this.config.notifyUpload;
+    if (rawValue === true || rawValue === false) {
+      return rawValue;
+    }
+    if (typeof rawValue === "string") {
+      const normalized = rawValue.trim().toLowerCase();
+      if (["1", "true", "yes", "on", "enable", "enabled"].includes(normalized)) {
+        return true;
+      }
+      if (["0", "false", "no", "off", "disable", "disabled"].includes(normalized)) {
+        return false;
+      }
+    }
+    return false;
   }
 
   async putObject(key: string, body: ArrayBuffer | string, contentType = "application/octet-stream"): Promise<void> {
@@ -293,17 +398,37 @@ export class TelegramStorageClient extends RegistryBackedStorageClient {
     const fileInfo = (await fileInfoResponse.json().catch(() => ({}))) as Record<string, any>;
     const filePath = fileInfo?.result?.file_path || "";
     const downloadUrl = filePath ? `${this.getBotBase()}/file/bot${token}/${encodeURIComponent(filePath)}` : "";
+    const size = typeof body === "string" ? new TextEncoder().encode(body).byteLength : body.byteLength;
+    const messageId = json.result?.message_id || null;
 
     this.registerFile(key, {
       downloadUrl,
       contentType,
-      size: typeof body === "string" ? new TextEncoder().encode(body).byteLength : body.byteLength,
+      size,
       lastModified: new Date().toISOString(),
       metadata: {
         telegramFileId: fileId,
-        telegramMessageId: json.result?.message_id || null,
+        telegramMessageId: messageId,
       },
     });
+
+    if (this.shouldNotifyUpload()) {
+      try {
+        await sendTelegramUploadNotice(
+          this.getBotBase(),
+          token,
+          chatId,
+          buildTelegramUploadNoticeText({
+            fileName,
+            fileSize: size,
+            downloadUrl,
+          }),
+          messageId
+        );
+      } catch (error) {
+        console.warn("Telegram upload notice failed:", error instanceof Error ? error.message : error);
+      }
+    }
   }
 
   async getObject(key: string): Promise<Response> {

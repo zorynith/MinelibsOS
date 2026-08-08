@@ -109,6 +109,7 @@ const driveConfigMap: Record<string, { name: string; supportsMultipart: boolean;
       { key: "botToken", label: "Bot Token", type: "password", required: true, placeholder: "123456:ABC..." },
       { key: "chatId", label: "聊天 ID", type: "text", required: true, placeholder: "-1001234567890" },
       { key: "apiBase", label: "Bot API 地址", type: "text", placeholder: "https://api.telegram.org" },
+      { key: "notifyUpload", label: "上传通知", type: "boolean", defaultValue: false, help: "上传完成后是否向 Telegram 发送一条通知消息" },
     ],
   },
   r2: {
