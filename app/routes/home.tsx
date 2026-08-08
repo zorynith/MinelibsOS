@@ -109,7 +109,6 @@ const driveConfigMap: Record<string, { name: string; supportsMultipart: boolean;
       { key: "botToken", label: "Bot Token", type: "password", required: true, placeholder: "123456:ABC..." },
       { key: "chatId", label: "聊天 ID", type: "text", required: true, placeholder: "-1001234567890" },
       { key: "apiBase", label: "Bot API 地址", type: "text", placeholder: "https://api.telegram.org" },
-      { key: "notifyUpload", label: "上传通知", type: "boolean", defaultValue: false, help: "上传完成后是否向 Telegram 发送一条通知消息" },
     ],
   },
   r2: {
@@ -2085,8 +2084,21 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB }: { storage: Stora
     try {
       const res = await fetch(`${apiFileUrl(storage.id, path)}?action=list`);
       if (res.ok) {
-        const data = (await res.json()) as { objects?: S3Object[] };
-        setObjects(data.objects || []);
+        const data = (await res.json()) as { objects?: S3Object[]; prefixes?: string[] };
+        const directories = (data.prefixes || []).map((prefix) => ({
+          key: path ? `${path}/${prefix}` : prefix,
+          name: prefix,
+          size: 0,
+          lastModified: "",
+          isDirectory: true,
+        }));
+        const merged = [...directories, ...(data.objects || [])].sort((a, b) => {
+          if (a.isDirectory !== b.isDirectory) {
+            return a.isDirectory ? -1 : 1;
+          }
+          return a.name.localeCompare(b.name);
+        });
+        setObjects(merged);
       } else {
         const data = (await res.json()) as { error?: string };
         setError(data.error || "加载失败");

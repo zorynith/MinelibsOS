@@ -349,20 +349,7 @@ export class TelegramStorageClient extends RegistryBackedStorageClient {
   }
 
   private shouldNotifyUpload(): boolean {
-    const rawValue = this.config.notifyUpload;
-    if (rawValue === true || rawValue === false) {
-      return rawValue;
-    }
-    if (typeof rawValue === "string") {
-      const normalized = rawValue.trim().toLowerCase();
-      if (["1", "true", "yes", "on", "enable", "enabled"].includes(normalized)) {
-        return true;
-      }
-      if (["0", "false", "no", "off", "disable", "disabled"].includes(normalized)) {
-        return false;
-      }
-    }
-    return false;
+    return true;
   }
 
   async putObject(key: string, body: ArrayBuffer | string, contentType = "application/octet-stream"): Promise<void> {
