@@ -556,6 +556,126 @@ function LoginModal({ onLogin, onClose }: { onLogin: () => void; onClose: () => 
   );
 }
 
+type ShareItem = {
+  id: string;
+  storageId: number;
+  filePath: string;
+  isDirectory: boolean;
+  shareToken: string;
+  expiresAt: string | null;
+  passwordHash: string | null;
+  createdAt: string;
+};
+
+function ShareManagerModal({
+  onClose,
+  customDomain,
+}: {
+  onClose: () => void;
+  customDomain: string;
+}) {
+  const [shares, setShares] = useState<ShareItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  const loadShares = async () => {
+    setLoaded(false);
+    try {
+      const res = await fetch('/api/shares');
+      const data = await res.json();
+      setShares(data.shares || []);
+    } catch {}
+    setLoaded(true);
+  };
+
+  useEffect(() => { loadShares(); }, []);
+
+  const handleDelete = async (share: ShareItem) => {
+    if (!confirm(`删除分享「${share.filePath}」？`)) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/shares?id=${encodeURIComponent(share.id)}`, { method: 'DELETE' });
+      if (res.ok) {
+        await loadShares();
+      } else {
+        const data = await res.json();
+        alert(data.error || '删除失败');
+      }
+    } catch {
+      alert('网络错误');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCopy = (token: string) => {
+    const base = customDomain ? `https://${customDomain}` : window.location.origin;
+    navigator.clipboard.writeText(`${base}/share?token=${token}`).then(() => {
+      alert('链接已复制');
+    });
+  };
+
+  const getStorageName = (storageId: number) => {
+    // storages is available from the parent via the storages prop, but we don't have it here.
+    // Use storageId directly as fallback.
+    return `存储 #${storageId}`;
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-700 flex items-center justify-between sticky top-0 bg-white dark:bg-zinc-900 rounded-t-xl">
+          <span className="text-zinc-900 dark:text-zinc-100 font-semibold text-sm">分享管理</span>
+          <button onClick={onClose} className="icon-btn h-7 w-7" aria-label="关闭"><X /></button>
+        </div>
+        <div className="p-4">
+          {!loaded ? (
+            <div className="flex items-center justify-center gap-2 py-12 text-zinc-400 text-sm">
+              <RefreshCw className="h-4 w-4 animate-spin" /> 加载中...
+            </div>
+          ) : shares.length === 0 ? (
+            <div className="text-sm text-zinc-400 py-12 text-center">
+              暂无分享链接
+            </div>
+          ) : (
+            <div className="border border-zinc-200 dark:border-zinc-700 rounded-lg divide-y divide-zinc-100 dark:divide-zinc-700 overflow-hidden">
+              {shares.map((s) => (
+                <div key={s.id} className="flex items-center gap-3 px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate">{s.filePath}</div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs text-zinc-400">{s.isDirectory ? '📁' : '📄'}</span>
+                      {s.passwordHash && <span className="text-xs text-amber-500">🔒</span>}
+                      {s.expiresAt && <span className="text-xs text-zinc-400">过期: {new Date(s.expiresAt).toLocaleDateString("zh-CN")}</span>}
+                      <span className="text-xs text-zinc-400">{new Date(s.createdAt).toLocaleDateString("zh-CN")}</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleCopy(s.shareToken)}
+                    disabled={loading}
+                    className="p-1.5 text-zinc-400 hover:text-blue-500 transition disabled:opacity-50"
+                    title="复制链接"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(s)}
+                    disabled={loading}
+                    className="p-1 text-zinc-400 hover:text-red-500 transition disabled:opacity-50"
+                    title="删除"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type BackupItem = {
   messageId: number;
   name: string;
@@ -688,7 +808,7 @@ function BackupManagerModal({
               <select
                 value={selectedStorageId || telegramStorages[0]?.id || ''}
                 onChange={(e) => setSelectedStorageId(Number(e.target.value))}
-                className="w-full px-3 py-2 mb-2 text-sm border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="field mb-2"
               >
                 {telegramStorages.map(s => (
                   <option key={s.id} value={s.id}>{s.name}</option>
@@ -701,7 +821,7 @@ function BackupManagerModal({
                 value={backupName}
                 onChange={(e) => setBackupName(e.target.value)}
                 placeholder="备份名称"
-                className="flex-1 px-3 py-2 text-sm border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-zinc-400 dark:placeholder:text-zinc-500"
+                className="field flex-1"
               />
               <button
                 onClick={handleBackup}
@@ -712,23 +832,6 @@ function BackupManagerModal({
               </button>
             </div>
           </div>
-
-          {/* 恢复到哪个存储的选择器 */}
-          {telegramStorages.length > 1 && backups.length > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-zinc-500 whitespace-nowrap">恢复到：</span>
-              <select
-                value={restoreTargetId || ''}
-                onChange={(e) => setRestoreTargetId(e.target.value ? Number(e.target.value) : null)}
-                className="flex-1 px-2.5 py-1.5 text-xs border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">自动（来源存储）</option>
-                {telegramStorages.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
 
           {/* 备份列表 */}
           <div>
@@ -768,16 +871,33 @@ function BackupManagerModal({
                     <button
                       onClick={() => handleDelete(b)}
                       disabled={loading}
-                      className="p-1.5 text-zinc-400 hover:text-red-500 transition disabled:opacity-50"
+                      className="p-1 text-zinc-400 hover:text-red-500 transition disabled:opacity-50"
                       title="删除"
                     >
-                      <Trash2 />
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 ))}
               </div>
             )}
           </div>
+
+          {/* 恢复到哪个存储的选择器 */}
+          {telegramStorages.length > 1 && backups.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-zinc-500 whitespace-nowrap">恢复到：</span>
+              <select
+                value={restoreTargetId || ''}
+                onChange={(e) => setRestoreTargetId(e.target.value ? Number(e.target.value) : null)}
+                className="field flex-1 text-xs py-1.5"
+              >
+                <option value="">自动（来源存储）</option>
+                {telegramStorages.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -4200,6 +4320,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   const [showLogin, setShowLogin] = useState(false);
   const [showStorageForm, setShowStorageForm] = useState(false);
   const [showBackupManager, setShowBackupManager] = useState(false);
+  const [showShareManager, setShowShareManager] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAnnouncement, setShowAnnouncement] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
@@ -4338,6 +4459,14 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               aria-label="切换主题"
             >
               {isDark ? <Sun /> : <Moon />}
+            </button>
+            <button
+              onClick={() => setShowShareManager(true)}
+              className="icon-btn h-8 w-8"
+              title="分享管理"
+              aria-label="分享管理"
+            >
+              <Share2 />
             </button>
             <button
               onClick={() => setShowSettings(true)}
@@ -4536,6 +4665,12 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           onClose={() => setShowBackupManager(false)}
           storages={storages}
           onRefresh={() => refreshStorages()}
+        />
+      )}
+      {showShareManager && (
+        <ShareManagerModal
+          onClose={() => setShowShareManager(false)}
+          customDomain={customDomain}
         />
       )}
       {showSettings && (
