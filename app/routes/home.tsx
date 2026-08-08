@@ -603,8 +603,6 @@ function StorageModal({
   const [showBackupPanel, setShowBackupPanel] = useState(false);
   const [backupName, setBackupName] = useState("");
   const [backupList, setBackupList] = useState<Array<{ messageId: number; name: string; date: string; fileCount: number }>>([]);
-  const [restoreSource, setRestoreSource] = useState<"db" | "backup" | "chat">("db");
-  const [selectedBackupId, setSelectedBackupId] = useState<number | undefined>(undefined);
 
   const loadBackupList = async () => {
     if (!storage?.id) return;
@@ -1042,7 +1040,7 @@ function StorageModal({
             <button
               type="button"
               onClick={onCancel}
-              className="flex-1 py-2 px-4 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:border-zinc-400 dark:hover:border-zinc-500 text-sm transition rounded"
+              className="flex-1 py-2 px-4 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:border-zinc-400 dark:hover:border-zinc-500 text-sm transition rounded whitespace-nowrap"
             >
               取消
             </button>
@@ -1052,124 +1050,87 @@ function StorageModal({
                   type="button"
                   onClick={() => { setShowBackupPanel(!showBackupPanel); if (!showBackupPanel) loadBackupList(); }}
                   disabled={loading}
-                  className="w-full py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white text-sm disabled:opacity-50 transition rounded flex items-center justify-center gap-1"
+                  className="w-full py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white text-sm disabled:opacity-50 transition rounded whitespace-nowrap"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                  {loading ? '处理中…' : '备份/恢复'}
+                  {loading ? '处理中…' : '备份 / 恢复'}
                 </button>
                 {showBackupPanel && (
-                  <div className="absolute bottom-full left-0 right-0 mb-1 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-xl p-3 z-50">
-                    {/* 备份区域 */}
-                    <div className="mb-3">
-                      <div className="text-xs font-medium text-zinc-500 mb-2">备份索引到 Telegram</div>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={backupName}
-                          onChange={(e) => setBackupName(e.target.value)}
-                          placeholder="备份名称（可选）"
-                          className="flex-1 px-2 py-1.5 text-xs border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 rounded"
-                        />
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-2xl p-4 z-50 w-[340px]">
+                    {/* === 备份区域 === */}
+                    <div className="mb-4">
+                      <div className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wide mb-2">备份</div>
+                      <div className="space-y-2">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={backupName}
+                            onChange={(e) => setBackupName(e.target.value)}
+                            placeholder="备份名称（可选）"
+                            className="flex-1 px-2.5 py-2 text-sm border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 rounded focus:outline-none focus:ring-2 focus:ring-green-500"
+                          />
+                        </div>
                         <button
                           type="button"
                           onClick={handleBackupIndexToChat}
                           disabled={loading}
-                          className="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white text-xs rounded disabled:opacity-50 transition whitespace-nowrap"
+                          className="w-full py-2 px-4 bg-green-600 hover:bg-green-500 text-white text-sm rounded disabled:opacity-50 transition whitespace-nowrap font-medium"
                         >
-                          备份
+                          备份到 Telegram
                         </button>
                       </div>
                     </div>
 
-                    {/* 恢复区域 */}
+                    {/* 分割线 */}
+                    <div className="border-t border-zinc-200 dark:border-zinc-700 my-3" />
+
+                    {/* === 恢复区域 === */}
                     <div>
-                      <div className="text-xs font-medium text-zinc-500 mb-2">恢复索引</div>
-                      <div className="flex gap-2 mb-2">
+                      <div className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wide mb-2">恢复</div>
+                      <div className="space-y-2">
                         <button
                           type="button"
-                          onClick={() => { setRestoreSource("db"); setSelectedBackupId(undefined); }}
-                          className={`flex-1 px-2 py-1.5 text-xs rounded border transition ${
-                            restoreSource === "db"
-                              ? "bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-600 text-amber-800 dark:text-amber-300"
-                              : "border-zinc-200 dark:border-zinc-600 text-zinc-600 dark:text-zinc-400 hover:border-zinc-400"
-                          }`}
+                          onClick={handleRestoreFromDb}
+                          disabled={loading}
+                          className="w-full py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white text-sm rounded disabled:opacity-50 transition whitespace-nowrap font-medium"
                         >
-                          从 D1 恢复
+                          从 D1 数据库恢复
                         </button>
+
                         <button
                           type="button"
-                          onClick={() => { setRestoreSource("backup"); setSelectedBackupId(undefined); }}
-                          className={`flex-1 px-2 py-1.5 text-xs rounded border transition ${
-                            restoreSource === "backup"
-                              ? "bg-purple-100 dark:bg-purple-900/30 border-purple-300 dark:border-purple-600 text-purple-800 dark:text-purple-300"
-                              : "border-zinc-200 dark:border-zinc-600 text-zinc-600 dark:text-zinc-400 hover:border-zinc-400"
-                          }`}
+                          onClick={() => handleRestoreFromChat()}
+                          disabled={loading}
+                          className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded disabled:opacity-50 transition whitespace-nowrap font-medium"
                         >
-                          从备份文件
+                          从 Telegram 聊天恢复
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => { setRestoreSource("chat"); setSelectedBackupId(undefined); }}
-                          className={`flex-1 px-2 py-1.5 text-xs rounded border transition ${
-                            restoreSource === "chat"
-                              ? "bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-800 dark:text-blue-300"
-                              : "border-zinc-200 dark:border-zinc-600 text-zinc-600 dark:text-zinc-400 hover:border-zinc-400"
-                          }`}
-                        >
-                          扫描聊天
-                        </button>
+
+                        {/* 从备份文件恢复 */}
+                        {backupList.length > 0 && (
+                          <div>
+                            <div className="text-xs text-zinc-500 mb-1.5 mt-1">从备份文件恢复：</div>
+                            <div className="max-h-40 overflow-y-auto border border-zinc-200 dark:border-zinc-700 rounded-lg divide-y divide-zinc-100 dark:divide-zinc-700">
+                              {backupList.map((b) => (
+                                <button
+                                  key={b.messageId}
+                                  type="button"
+                                  onClick={() => handleRestoreFromChat(b.messageId)}
+                                  disabled={loading}
+                                  className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-700 transition disabled:opacity-50"
+                                >
+                                  <span className="flex-1 text-sm text-zinc-700 dark:text-zinc-300">{b.name}</span>
+                                  <span className="text-xs text-zinc-400">{b.fileCount} 文件</span>
+                                  <span className="text-xs text-zinc-400 whitespace-nowrap">{new Date(b.date).toLocaleDateString("zh-CN")}</span>
+                                  <svg className="w-4 h-4 text-purple-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {backupList.length === 0 && (
+                          <div className="text-xs text-zinc-400 py-1">暂无备份文件，请先「备份到 Telegram」</div>
+                        )}
                       </div>
-
-                      {/* 备份列表（从备份文件恢复时显示） */}
-                      {restoreSource === "backup" && (
-                        <div className="mb-2 max-h-32 overflow-y-auto">
-                          {backupList.length === 0 ? (
-                            <div className="text-xs text-zinc-400 py-2 text-center">暂无备份，请先备份</div>
-                          ) : (
-                            backupList.map((b) => (
-                              <label
-                                key={b.messageId}
-                                className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer rounded text-xs transition ${
-                                  selectedBackupId === b.messageId
-                                    ? "bg-purple-100 dark:bg-purple-900/30"
-                                    : "hover:bg-zinc-50 dark:hover:bg-zinc-700"
-                                }`}
-                              >
-                                <input
-                                  type="radio"
-                                  name="backupSelect"
-                                  checked={selectedBackupId === b.messageId}
-                                  onChange={() => setSelectedBackupId(b.messageId)}
-                                  className="w-3 h-3"
-                                />
-                                <span className="flex-1 text-zinc-700 dark:text-zinc-300">{b.name}</span>
-                                <span className="text-zinc-400">{b.fileCount} 文件</span>
-                                <span className="text-zinc-400 text-[10px]">{new Date(b.date).toLocaleDateString("zh-CN")}</span>
-                              </label>
-                            ))
-                          )}
-                        </div>
-                      )}
-
-                      {/* 恢复按钮 */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (restoreSource === "db") handleRestoreFromDb();
-                          else if (restoreSource === "backup") handleRestoreFromChat(selectedBackupId);
-                          else handleRestoreFromChat();
-                        }}
-                        disabled={loading || (restoreSource === "backup" && !selectedBackupId && backupList.length > 0)}
-                        className={`w-full py-1.5 text-xs rounded transition disabled:opacity-50 ${
-                          restoreSource === "db"
-                            ? "bg-amber-600 hover:bg-amber-500 text-white"
-                            : restoreSource === "backup"
-                            ? "bg-purple-600 hover:bg-purple-500 text-white"
-                            : "bg-blue-600 hover:bg-blue-500 text-white"
-                        }`}
-                      >
-                        {restoreSource === "db" ? "从 D1 数据库恢复" : restoreSource === "backup" ? "从选中备份恢复" : "扫描聊天消息恢复"}
-                      </button>
                     </div>
                   </div>
                 )}
@@ -1178,7 +1139,7 @@ function StorageModal({
             <button
               type="submit"
               disabled={loading}
-              className="flex-1 py-2 px-4 bg-blue-600 hover:bg-blue-500 text-white text-sm disabled:opacity-50 transition rounded"
+              className="flex-1 py-2 px-4 bg-blue-600 hover:bg-blue-500 text-white text-sm disabled:opacity-50 transition rounded whitespace-nowrap"
             >
               {loading ? "保存中..." : "保存"}
             </button>
