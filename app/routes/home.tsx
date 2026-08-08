@@ -3567,7 +3567,7 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB, customDomain }: { 
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 overflow-x-auto min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex items-center gap-2 overflow-x-auto min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pr-4 md:pr-0 -mr-4 md:mr-0">
           <div className="relative shrink-0">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
             <input
@@ -3660,11 +3660,11 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB, customDomain }: { 
             </>
           )}
           {path && (
-            <button onClick={goUp} className="icon-btn h-8 w-8" title="返回上级目录" aria-label="返回上级目录">
+            <button onClick={goUp} className="icon-btn h-8 w-8 shrink-0" title="返回上级目录" aria-label="返回上级目录">
               <ArrowLeft />
             </button>
           )}
-          <button onClick={loadFiles} className="icon-btn h-8 w-8" title="刷新" aria-label="刷新">
+          <button onClick={loadFiles} className="icon-btn h-8 w-8 shrink-0" title="刷新" aria-label="刷新">
             <RefreshCw />
           </button>
           {isAdmin && (
