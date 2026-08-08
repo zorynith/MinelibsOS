@@ -3520,12 +3520,12 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB, customDomain }: { 
     <div className="h-full flex flex-col">
       {/* Breadcrumb row — separate on mobile */}
       <div className="flex items-center gap-0.5 text-sm overflow-x-auto min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden py-1.5 px-4 border-b border-zinc-200 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40 md:hidden">
-        <button onClick={() => setPath("")} className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 font-medium text-zinc-600 hover:text-blue-600 dark:text-zinc-300 dark:hover:text-blue-400 shrink-0">
+        <button onClick={() => setPath("")} className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 font-medium text-zinc-600 hover:text-blue-600 dark:text-zinc-300 dark:hover:text-blue-400 whitespace-nowrap">
           <Folder className="h-4 w-4 text-blue-500" />
           {storage.name}
         </button>
         {breadcrumbs.map((part, i) => (
-          <span key={i} className="flex items-center shrink-0">
+          <span key={i} className="flex items-center whitespace-nowrap">
             <ChevronRight className="h-4 w-4 text-zinc-300 dark:text-zinc-600" />
             <button
               onClick={() => navigateTo(breadcrumbs.slice(0, i + 1).join("/"))}
@@ -3536,7 +3536,7 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB, customDomain }: { 
           </span>
         ))}
         {selectedKeys.size > 0 && (
-          <span className="ml-2 rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400 shrink-0">
+          <span className="ml-2 rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">
             已选 {selectedKeys.size} 项
           </span>
         )}
@@ -3545,12 +3545,12 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB, customDomain }: { 
       <div className="flex items-center justify-between gap-3 py-2 px-4 border-b border-zinc-200 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40 min-w-0">
         {/* Breadcrumb — desktop only */}
         <div className="hidden md:flex items-center gap-0.5 text-sm overflow-x-auto min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <button onClick={() => setPath("")} className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 font-medium text-zinc-600 hover:text-blue-600 dark:text-zinc-300 dark:hover:text-blue-400 shrink-0">
+          <button onClick={() => setPath("")} className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 font-medium text-zinc-600 hover:text-blue-600 dark:text-zinc-300 dark:hover:text-blue-400 whitespace-nowrap">
             <Folder className="h-4 w-4 text-blue-500" />
             {storage.name}
           </button>
           {breadcrumbs.map((part, i) => (
-            <span key={i} className="flex items-center shrink-0">
+            <span key={i} className="flex items-center whitespace-nowrap">
               <ChevronRight className="h-4 w-4 text-zinc-300 dark:text-zinc-600" />
               <button
                 onClick={() => navigateTo(breadcrumbs.slice(0, i + 1).join("/"))}
@@ -3562,12 +3562,12 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB, customDomain }: { 
           ))}
           {/* Selection info */}
           {selectedKeys.size > 0 && (
-            <span className="ml-2 rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400 shrink-0">
+            <span className="ml-2 rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">
               已选 {selectedKeys.size} 项
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 overflow-x-auto min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden shrink-0">
+        <div className="flex items-center gap-2 overflow-x-auto min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="relative shrink-0">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
             <input
