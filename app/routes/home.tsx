@@ -3567,16 +3567,16 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB, customDomain }: { 
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1 overflow-x-auto min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <div className="relative">
+        <div className="flex items-center gap-2 overflow-x-auto min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden shrink-0">
+          <div className="relative shrink-0">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
             <input
               ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索文件..."
-              className="w-44 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 py-1.5 pl-7 pr-7 text-xs text-zinc-700 dark:text-zinc-200 placeholder:text-zinc-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition"
+              placeholder="搜索..."
+              className="w-28 md:w-44 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 py-1.5 pl-7 pr-7 text-xs text-zinc-700 dark:text-zinc-200 placeholder:text-zinc-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition"
             />
             {searchQuery && (
               <button
@@ -3591,7 +3591,7 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB, customDomain }: { 
           </div>
           <button
             onClick={() => { setGlobalSearch((g) => !g); setGlobalResults([]); }}
-            className={`icon-btn h-8 w-8 ${globalSearch ? "text-blue-600 dark:text-blue-400 bg-blue-500/10" : ""}`}
+            className={`icon-btn h-8 w-8 shrink-0 ${globalSearch ? "text-blue-600 dark:text-blue-400 bg-blue-500/10" : ""}`}
             title={globalSearch ? "全局搜索中（点击切回当前目录）" : "全局搜索"}
             aria-label="全局搜索"
           >
@@ -3599,13 +3599,13 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB, customDomain }: { 
           </button>
           <button
             onClick={() => setViewMode((v) => (v === "list" ? "gallery" : "list"))}
-            className={`icon-btn h-8 w-8 ${viewMode === "gallery" ? "text-blue-600 dark:text-blue-400 bg-blue-500/10" : ""}`}
+            className={`icon-btn h-8 w-8 shrink-0 ${viewMode === "gallery" ? "text-blue-600 dark:text-blue-400 bg-blue-500/10" : ""}`}
             title={viewMode === "list" ? "网格视图" : "列表视图"}
             aria-label="切换视图"
           >
             {viewMode === "list" ? <LayoutGrid /> : <List />}
           </button>
-          <div className="relative">
+          <div className="relative shrink-0">
             <button
               onClick={() => setFavOpen((o) => !o)}
               className={`icon-btn h-8 w-8 ${favOpen ? "text-yellow-500 bg-yellow-500/10" : ""}`}
