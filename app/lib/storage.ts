@@ -375,6 +375,13 @@ export async function initDatabase(db: D1Database): Promise<void> {
   if (shareNames.size > 0 && !shareNames.has("password_hash")) {
     await db.prepare("ALTER TABLE shares ADD COLUMN password_hash TEXT").run();
   }
+
+  // 迁移：为旧版 telegram_files 表补 folder_path 列
+  const tfCols = await db.prepare("PRAGMA table_info(telegram_files)").all<{ name: string }>();
+  const tfNames = new Set((tfCols.results ?? []).map((c) => c.name));
+  if (tfNames.size > 0 && !tfNames.has("folder_path")) {
+    await db.prepare("ALTER TABLE telegram_files ADD COLUMN folder_path TEXT").run();
+  }
 }
 
 // Backup types
