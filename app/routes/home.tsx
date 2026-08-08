@@ -4188,34 +4188,15 @@ export default function Home({ loaderData }: Route.ComponentProps) {
       {/* Footer */}
       <footer className="shrink-0 border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-2">
         <div className="flex items-center justify-center gap-3 text-xs text-zinc-500 dark:text-zinc-500">
-          <a
-            href="https://github.com/ooyyh/Cloudflare-Clist"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 hover:text-zinc-800 dark:hover:text-zinc-200 transition"
-          >
-            <Github className="h-3.5 w-3.5" />
-            GitHub
-          </a>
-          <span className="text-zinc-300 dark:text-zinc-700">·</span>
-          <button
-            onClick={() => setShowChangelog(true)}
-            className="hover:text-zinc-800 dark:hover:text-zinc-200 transition"
-          >
-            更新日志
-          </button>
-          <span className="text-zinc-300 dark:text-zinc-700">·</span>
-          <span>Made by <span className="text-zinc-700 dark:text-zinc-300">ooyyh</span></span>
-          <span className="text-zinc-300 dark:text-zinc-700">·</span>
           <span className="inline-flex items-center gap-1">
             Powered by
             <a
-              href="https://www.cloudflare.com"
+              href="https://minelibs.eu.org"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-orange-500 hover:text-orange-400 transition"
+              className="text-green-500 hover:text-green-400 transition"
             >
-              Cloudflare
+              Minelibs
             </a>
           </span>
         </div>
