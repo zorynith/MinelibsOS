@@ -26,9 +26,9 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
   if (!chatId) return;
   try {
     const rows = await db
-      .prepare("SELECT file_id, message_id, file_name, size, download_url, updated_at, storage_ids FROM telegram_files WHERE chat_id = ? ORDER BY updated_at DESC")
+      .prepare("SELECT file_id, message_id, file_name, folder_path, size, download_url, updated_at, storage_ids FROM telegram_files WHERE chat_id = ? ORDER BY updated_at DESC")
       .bind(String(chatId))
-      .all<{ file_id: string; message_id: number | null; file_name: string; size: number | null; download_url: string | null; updated_at: string; storage_ids: string }>();
+      .all<{ file_id: string; message_id: number | null; file_name: string; folder_path: string | null; size: number | null; download_url: string | null; updated_at: string; storage_ids: string }>();
 
     // Build map of new objects from DB and collect folders
     const newObjects: Record<string, any> = {};
@@ -36,9 +36,21 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
     for (const r of rows.results || []) {
       const id = String(r.file_id || "");
       const fileName = r.file_name || id;
-      const folderPath = (r as any).folder_path || "";
-      const key = folderPath ? `${folderPath.replace(/\/+$/, "")}/${fileName}` : fileName;
-      if (folderPath) folders.add(folderPath.replace(/\/+$/, ""));
+      const folderPath = (r.folder_path || "").replace(/\/+$/, "");
+      // 构建文件的存储 key：优先使用 folder_path，如果为空则尝试从 file_name 推断路径
+      // （上传通知中已标明路径，如 "docs/sub/报告.pdf"，恢复时据此重建文件夹）
+      let key: string;
+      if (folderPath) {
+        key = `${folderPath}/${fileName}`;
+      } else if (fileName.includes("/")) {
+        // 文件名中包含路径分隔符，说明上传通知中标明了路径
+        key = fileName;
+        const parentPath = fileName.substring(0, fileName.lastIndexOf("/"));
+        if (parentPath) folders.add(parentPath);
+      } else {
+        key = fileName;
+      }
+      if (folderPath) folders.add(folderPath);
       newObjects[key] = {
         kind: "file",
         path: key,
@@ -57,17 +69,22 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
 
     if (Object.keys(newObjects).length === 0) return;
 
-    // Add directory markers for each folder
+    // Add directory markers for each folder, including parent folders
     for (const f of Array.from(folders)) {
-      const dirKey = f.endsWith("/") ? f : `${f}/`;
-      if (!newObjects[dirKey]) {
-        newObjects[dirKey] = {
-          kind: "directory",
-          path: dirKey,
-          size: 0,
-          contentType: "application/x-directory",
-          lastModified: new Date().toISOString(),
-        };
+      // 递归添加所有父级目录
+      const parts = f.split("/");
+      for (let i = 0; i < parts.length; i++) {
+        const ancestor = parts.slice(0, i + 1).join("/");
+        const dirKey = ancestor.endsWith("/") ? ancestor : `${ancestor}/`;
+        if (!newObjects[dirKey]) {
+          newObjects[dirKey] = {
+            kind: "directory",
+            path: dirKey,
+            size: 0,
+            contentType: "application/x-directory",
+            lastModified: new Date().toISOString(),
+          };
+        }
       }
     }
 

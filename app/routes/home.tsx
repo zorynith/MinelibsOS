@@ -972,7 +972,7 @@ function StorageModal({
                 type="button"
                 onClick={handleManualRestore}
                 disabled={loading}
-                className="py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white text-sm disabled:opacity-50 transition rounded"
+                className="flex-1 py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white text-sm disabled:opacity-50 transition rounded"
               >
                 {loading ? '恢复中…' : '恢复索引'}
               </button>
@@ -1001,6 +1001,8 @@ function SettingsModal({
   onRefreshStorages,
   webdavEnabled,
   storages,
+  customDomain,
+  onSetCustomDomain,
 }: {
   onClose: () => void;
   siteTitle: string;
@@ -1011,6 +1013,8 @@ function SettingsModal({
   onRefreshStorages: () => void;
   webdavEnabled: boolean;
   storages: StorageInfo[];
+  customDomain: string;
+  onSetCustomDomain: (domain: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<'general' | 'webdav' | 'backup' | 'audit' | 'about'>('general');
   const [exporting, setExporting] = useState(false);
@@ -1020,6 +1024,8 @@ function SettingsModal({
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState("");
+  const [domainInput, setDomainInput] = useState(customDomain);
+  const [domainSaved, setDomainSaved] = useState(false);
 
   const handleExportBackup = async () => {
     setExporting(true);
@@ -1201,6 +1207,50 @@ function SettingsModal({
                 >
                   {isDark ? '☀ 亮色' : '☾ 暗色'}
                 </button>
+              </div>
+
+              {/* Domain Setting */}
+              <div className="border-t border-zinc-200 dark:border-zinc-700 pt-4">
+                <div className="text-sm text-zinc-900 dark:text-zinc-100 font-semibold">域名设置</div>
+                <div className="text-xs text-zinc-500 mt-1 mb-2">设置本站域名，分享链接将使用此域名。留空则使用当前访问域名。</div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={domainInput}
+                    onChange={(e) => { setDomainInput(e.target.value); setDomainSaved(false); }}
+                    placeholder="例如：files.example.com"
+                    className="field flex-1 text-xs"
+                  />
+                  <button
+                    onClick={() => {
+                      const trimmed = domainInput.trim();
+                      try {
+                        if (trimmed) {
+                          // Validate domain format: allow hostname with optional port and protocol
+                          const normalized = trimmed.startsWith('http://') || trimmed.startsWith('https://')
+                            ? trimmed.replace(/\/+$/, '')
+                            : `https://${trimmed}`.replace(/\/+$/, '');
+                          new URL(normalized);
+                        }
+                        localStorage.setItem("clist-domain", trimmed);
+                        onSetCustomDomain(trimmed);
+                        setDomainInput(trimmed);
+                        setDomainSaved(true);
+                        setTimeout(() => setDomainSaved(false), 2000);
+                      } catch {
+                        alert('域名格式无效，请输入如 files.example.com 或 https://files.example.com');
+                      }
+                    }}
+                    className="btn btn-sm btn-primary shrink-0"
+                  >
+                    {domainSaved ? '已保存' : '确认'}
+                  </button>
+                </div>
+                {customDomain && (
+                  <div className="mt-1.5 text-[10px] text-zinc-400">
+                    当前域名：{customDomain}
+                  </div>
+                )}
               </div>
 
               {/* Announcement */}
@@ -2015,7 +2065,7 @@ function ChangelogModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB }: { storage: StorageInfo; isAdmin: boolean; isDark: boolean; chunkSizeMB: number }) {
+function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB, customDomain }: { storage: StorageInfo; isAdmin: boolean; isDark: boolean; chunkSizeMB: number; customDomain: string }) {
   // Permission checks
   const canList = isAdmin || storage.guestList;
   const canDownload = isAdmin || storage.guestDownload;
@@ -2324,10 +2374,24 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB }: { storage: Stora
       if (res.ok) {
         const data = (await res.json()) as { share: { shareToken: string }; shareUrl: string };
         setShareToken(data.share.shareToken);
-        setShareUrl(data.shareUrl);
+        // Use custom domain for share URL if set
+        let finalShareUrl = data.shareUrl;
+        if (customDomain) {
+          try {
+            const originalUrl = new URL(data.shareUrl);
+            const domain = customDomain.startsWith('http://') || customDomain.startsWith('https://')
+              ? customDomain.replace(/\/+$/, '')
+              : `https://${customDomain}`.replace(/\/+$/, '');
+            const customUrl = new URL(domain);
+            customUrl.pathname = originalUrl.pathname;
+            customUrl.search = originalUrl.search;
+            finalShareUrl = customUrl.toString();
+          } catch { /* ignore, keep original */ }
+        }
+        setShareUrl(finalShareUrl);
         try {
           const QRCode = await import("qrcode");
-          const dataUrl = await QRCode.toDataURL(data.shareUrl, { margin: 1, width: 240 });
+          const dataUrl = await QRCode.toDataURL(finalShareUrl, { margin: 1, width: 240 });
           setShareQrCode(dataUrl);
         } catch {
           setShareQrCode("");
@@ -3156,7 +3220,7 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB }: { storage: Stora
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1 shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
             <input
@@ -3532,8 +3596,8 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB }: { storage: Stora
             })}
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="text-xs text-zinc-500 border-b border-zinc-200 dark:border-zinc-800 sticky top-0 bg-zinc-50/95 dark:bg-zinc-900/95 backdrop-blur">
+          <table className="w-full text-sm min-w-[520px]">
+            <thead className="text-xs text-zinc-500 border-b border-zinc-200 dark:border-zinc-800 sticky top-0 bg-zinc-50/95 dark:bg-zinc-900/95 backdrop-blur whitespace-nowrap">
               <tr>
                 {isAdmin && (
                   <th className="py-2.5 px-3 w-10">
@@ -3955,6 +4019,9 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   const [editingStorage, setEditingStorage] = useState<StorageInfo | null>(null);
   const [isDark, setIsDark] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [customDomain, setCustomDomain] = useState<string>(() => {
+    try { return localStorage.getItem("clist-domain") || ""; } catch { return ""; }
+  });
 
   const siteTitle = loaderData.siteTitle || "Minelibs";
   const siteAnnouncement = loaderData.siteAnnouncement || "";
@@ -4074,7 +4141,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           <div className="flex-1 text-center min-w-0">
             <span className="text-sm text-zinc-500 dark:text-zinc-400 truncate block">存储管理</span>
           </div>
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-1 shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <button
               onClick={toggleTheme}
               className="icon-btn h-8 w-8"
@@ -4224,7 +4291,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         {/* Main */}
         <main className="flex-1 bg-zinc-50 dark:bg-zinc-900 min-w-0 overflow-hidden">
           {selectedStorage ? (
-            <FileBrowser storage={selectedStorage} isAdmin={isAdmin} isDark={isDark} chunkSizeMB={chunkSizeMB} />
+            <FileBrowser storage={selectedStorage} isAdmin={isAdmin} isDark={isDark} chunkSizeMB={chunkSizeMB} customDomain={customDomain} />
           ) : (
             <div className="flex flex-col items-center justify-center h-full gap-3 text-zinc-400 dark:text-zinc-600">
               <Cloud className="h-12 w-12 text-zinc-300 dark:text-zinc-700" />
@@ -4276,6 +4343,8 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           onRefreshStorages={refreshStorages}
           webdavEnabled={webdavEnabled}
           storages={storages}
+          customDomain={customDomain}
+          onSetCustomDomain={(domain) => { setCustomDomain(domain); }}
         />
       )}
       {showAnnouncement && siteAnnouncement && (

@@ -55,8 +55,17 @@ async function persistClientState(
         const downloadUrl = entry.downloadUrl || null;
         const size = entry.size ? Number(entry.size) : null;
         // derive fileName and folderPath
-        const derivedFileName = metadata.fileName || (typeof rawKey === 'string' ? rawKey.split('/').pop() : String(rawKey));
-        const derivedFolder = (typeof rawKey === 'string' && rawKey.includes('/')) ? rawKey.substring(0, rawKey.lastIndexOf('/')) : (metadata.folderPath || null);
+        // 优先使用 metadata.storagePath 来推导文件夹路径（上传通知中已标明路径）
+        const storagePath = metadata.storagePath || null;
+        let derivedFolder: string | null = null;
+        let derivedFileName: string;
+        if (storagePath && typeof storagePath === 'string' && storagePath.includes('/')) {
+          derivedFolder = storagePath.substring(0, storagePath.lastIndexOf('/'));
+          derivedFileName = storagePath.split('/').pop() || String(rawKey);
+        } else {
+          derivedFileName = metadata.fileName || (typeof rawKey === 'string' ? rawKey.split('/').pop() : String(rawKey));
+          derivedFolder = (typeof rawKey === 'string' && rawKey.includes('/')) ? rawKey.substring(0, rawKey.lastIndexOf('/')) : (metadata.folderPath || null);
+        }
         if (!fileId) continue;
 
         // Upsert into telegram_files; maintain a JSON array of storage ids referencing this file

@@ -107,18 +107,25 @@ function buildTelegramUploadNoticeText({
   fileName,
   fileSize,
   downloadUrl,
+  storagePath,
 }: {
   fileName: string;
   fileSize: number;
   downloadUrl: string;
+  storagePath?: string;
 }) {
   const safeName = fileName || "unnamed";
-  return [
+  const lines = [
     "文件上传完成",
     `名称: ${safeName}`,
     `大小: ${formatBytes(fileSize)}`,
     `下载链接: ${downloadUrl || "无"}`,
-  ].join("\n");
+  ];
+  // 在消息中明确标明存储路径，以便恢复索引时重建文件夹结构
+  if (storagePath) {
+    lines.push(`路径: ${storagePath}`);
+  }
+  return lines.join("\n");
 }
 
 async function sendTelegramUploadNotice(
@@ -362,7 +369,8 @@ export class TelegramStorageClient extends RegistryBackedStorageClient {
     const blob = typeof body === "string"
       ? new Blob([body], { type: contentType })
       : new Blob([body], { type: contentType });
-    const fileName = this.normalizeKey(key).split("/").pop() || "upload.bin";
+    const normalizedKey = this.normalizeKey(key);
+    const fileName = normalizedKey.split("/").pop() || "upload.bin";
     const formData = new FormData();
     formData.append("chat_id", chatId);
     formData.append("document", new File([blob], fileName, { type: contentType }));
@@ -396,6 +404,7 @@ export class TelegramStorageClient extends RegistryBackedStorageClient {
       metadata: {
         telegramFileId: fileId,
         telegramMessageId: messageId,
+        storagePath: normalizedKey,
       },
     });
 
@@ -409,6 +418,7 @@ export class TelegramStorageClient extends RegistryBackedStorageClient {
             fileName,
             fileSize: size,
             downloadUrl,
+            storagePath: normalizedKey,
           }),
           messageId
         );
