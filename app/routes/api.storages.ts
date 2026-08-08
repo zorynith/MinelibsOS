@@ -30,26 +30,17 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
       .bind(String(chatId))
       .all();
 
+    if (!rows.results || rows.results.length === 0) return;
+
     // Build map of new objects from DB and collect folders
     const newObjects: Record<string, any> = {};
     const folders = new Set<string>();
-    for (const r of rows.results || []) {
-      const row = r as Record<string, any>;
+    for (const r of rows.results) {
+      const row = r as any;
       const id = String(row.file_id || "");
       const fileName = String(row.file_name || id);
-      const rawFolderPath = String(row.folder_path || "");
-      const folderPath = rawFolderPath.replace(/\/+$/, "");
-      // 构建文件的存储 key：优先使用 folder_path，如果为空则尝试从 file_name 推断路径
-      let key: string;
-      if (folderPath) {
-        key = `${folderPath}/${fileName}`;
-      } else if (fileName.includes("/")) {
-        key = fileName;
-        const parentPath = fileName.substring(0, fileName.lastIndexOf("/"));
-        if (parentPath) folders.add(parentPath);
-      } else {
-        key = fileName;
-      }
+      const folderPath = (row.folder_path || "").replace(/\/+$/, "");
+      const key = folderPath ? `${folderPath}/${fileName}` : fileName;
       if (folderPath) folders.add(folderPath);
       newObjects[key] = {
         kind: "file",
@@ -67,25 +58,17 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
       };
     }
 
-    console.log(`[rebuildTelegram] Found ${Object.keys(newObjects).length} objects from ${rows.results?.length || 0} rows`);
-
-    if (Object.keys(newObjects).length === 0) return;
-
-    // Add directory markers for each folder, including parent folders
+    // Add directory markers for each folder
     for (const f of Array.from(folders)) {
-      const parts = f.split("/").filter(Boolean);
-      for (let i = 0; i < parts.length; i++) {
-        const ancestor = parts.slice(0, i + 1).join("/");
-        const dirKey = `${ancestor}/`;
-        if (!newObjects[dirKey]) {
-          newObjects[dirKey] = {
-            kind: "directory",
-            path: dirKey,
-            size: 0,
-            contentType: "application/x-directory",
-            lastModified: new Date().toISOString(),
-          };
-        }
+      const dirKey = f.endsWith("/") ? f : `${f}/`;
+      if (!newObjects[dirKey]) {
+        newObjects[dirKey] = {
+          kind: "directory",
+          path: dirKey,
+          size: 0,
+          contentType: "application/x-directory",
+          lastModified: new Date().toISOString(),
+        };
       }
     }
 
@@ -109,9 +92,7 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
       }
     }
 
-    console.log(`[rebuildTelegram] Merged ${Object.keys(merged).length} objects, saving to storage ${storageId}`);
     await updateStorage(db, storageId, { saving: { objects: merged } });
-    console.log(`[rebuildTelegram] Successfully saved to storage ${storageId}`);
   } catch (err) {
     console.error("Failed to rebuild telegram saving from db:", err);
   }
