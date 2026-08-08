@@ -790,8 +790,11 @@ function StorageModal({
       });
       const data = (await res.json()) as any;
       if (res.ok) {
-        alert(`从聊天恢复了 ${data.count || 0} 个文件${data.fromBackup ? '（来自备份文件）' : ''}，请刷新列表。`);
-        onSave();
+        const msg = data.details
+          ? `${data.details}\n恢复了 ${data.count || 0} 个文件`
+          : `从聊天恢复了 ${data.count || 0} 个文件${data.fromBackup ? '（来自备份文件）' : ''}，请刷新列表。`;
+        alert(msg);
+        if (data.count > 0) onSave();
       } else {
         alert(data.error || '恢复失败');
       }
