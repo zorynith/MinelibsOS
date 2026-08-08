@@ -236,8 +236,18 @@ export async function updateStorage(
     values.push(JSON.stringify(mergedConfig));
   }
   if (input.saving !== undefined) {
+    // 深度合并 saving：保护 backupList 等不会被覆盖
+    const mergedSaving = {
+      ...(existing.saving || {}),
+      ...(input.saving || {}),
+      // 对 objects 做特殊合并
+      objects: {
+        ...(existing.saving?.objects || {}),
+        ...(input.saving?.objects || {}),
+      },
+    };
     updates.push("saving_json = ?");
-    values.push(JSON.stringify(input.saving || {}));
+    values.push(JSON.stringify(mergedSaving));
   }
   if (input.isPublic !== undefined) {
     updates.push("is_public = ?");

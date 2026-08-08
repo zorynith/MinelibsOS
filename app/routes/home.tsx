@@ -734,9 +734,8 @@ function BackupManagerModal({
           <div>
             <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-3">历史备份</div>
             {!backupsLoaded ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="w-5 h-5 border-2 border-zinc-300 dark:border-zinc-600 border-t-blue-500 rounded-full animate-spin" />
-                <span className="text-sm text-zinc-400 ml-2">加载中...</span>
+              <div className="flex items-center justify-center gap-2 py-8 text-zinc-400 text-sm">
+                <RefreshCw className="h-4 w-4 animate-spin" /> 加载中...
               </div>
             ) : backups.length === 0 ? (
               <div className="text-sm text-zinc-400 py-8 text-center">
