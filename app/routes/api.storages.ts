@@ -30,13 +30,15 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
       .bind(String(chatId))
       .all<{ file_id: string; message_id: number | null; file_name: string; size: number | null; download_url: string | null; updated_at: string; storage_ids: string }>();
 
-    // Build map of new objects from DB
+    // Build map of new objects from DB and collect folders
     const newObjects: Record<string, any> = {};
+    const folders = new Set<string>();
     for (const r of rows.results || []) {
       const id = String(r.file_id || "");
-      const safeName = r.file_name || id;
-      // prefer readable key: file name; fallback to file id
-      const key = safeName || id;
+      const fileName = r.file_name || id;
+      const folderPath = (r as any).folder_path || "";
+      const key = folderPath ? `${folderPath.replace(/\/+$/, "")}/${fileName}` : fileName;
+      if (folderPath) folders.add(folderPath.replace(/\/+$/, ""));
       newObjects[key] = {
         kind: "file",
         path: key,
@@ -47,12 +49,27 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
         metadata: {
           telegramFileId: r.file_id,
           telegramMessageId: r.message_id || null,
-          fileName: r.file_name || null,
+          fileName: fileName || null,
+          folderPath: folderPath || null,
         },
       };
     }
 
     if (Object.keys(newObjects).length === 0) return;
+
+    // Add directory markers for each folder
+    for (const f of Array.from(folders)) {
+      const dirKey = f.endsWith("/") ? f : `${f}/`;
+      if (!newObjects[dirKey]) {
+        newObjects[dirKey] = {
+          kind: "directory",
+          path: dirKey,
+          size: 0,
+          contentType: "application/x-directory",
+          lastModified: new Date().toISOString(),
+        };
+      }
+    }
 
     // Merge with existing saving.objects if present
     const existing = await getStorageById(db, storageId);

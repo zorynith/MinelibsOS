@@ -744,6 +744,37 @@ function StorageModal({
     }
   };
 
+  const handleManualRestore = async () => {
+    if (!storage || !storage.id) {
+      alert('请先保存存储后再执行恢复。');
+      return;
+    }
+    const chatId = (formData.config || {}).chatId || (formData.config || {}).chat_id || storage.config?.chatId || storage.config?.chat_id;
+    if (!chatId) {
+      alert('未配置 chatId，无法恢复。');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/storages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'restore-telegram', storageId: storage.id, chatId }),
+      });
+      if (res.ok) {
+        alert('恢复请求已提交，完成后请刷新列表。');
+        onSave();
+      } else {
+        const data = await res.json();
+        alert(data.error || '恢复失败');
+      }
+    } catch (err) {
+      alert('网络错误');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onCancel}>
       <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -936,6 +967,16 @@ function StorageModal({
             >
               取消
             </button>
+            {storage && storage.type === 'telegram' && (
+              <button
+                type="button"
+                onClick={handleManualRestore}
+                disabled={loading}
+                className="py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white text-sm disabled:opacity-50 transition rounded"
+              >
+                {loading ? '恢复中…' : '恢复索引'}
+              </button>
+            )}
             <button
               type="submit"
               disabled={loading}

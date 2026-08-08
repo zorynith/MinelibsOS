@@ -54,7 +54,9 @@ async function persistClientState(
         const messageId = metadata.telegramMessageId ? Number(metadata.telegramMessageId) : null;
         const downloadUrl = entry.downloadUrl || null;
         const size = entry.size ? Number(entry.size) : null;
-        const fileName = rawKey.split('/').pop() || null;
+        // derive fileName and folderPath
+        const derivedFileName = metadata.fileName || (typeof rawKey === 'string' ? rawKey.split('/').pop() : String(rawKey));
+        const derivedFolder = (typeof rawKey === 'string' && rawKey.includes('/')) ? rawKey.substring(0, rawKey.lastIndexOf('/')) : (metadata.folderPath || null);
         if (!fileId) continue;
 
         // Upsert into telegram_files; maintain a JSON array of storage ids referencing this file
@@ -69,18 +71,28 @@ async function persistClientState(
         if (!storageIds.includes(String(storageId))) storageIds.push(String(storageId));
 
         await db.prepare(
-          `INSERT INTO telegram_files (file_id, chat_id, message_id, file_name, size, download_url, storage_ids, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          `INSERT INTO telegram_files (file_id, chat_id, message_id, file_name, folder_path, size, download_url, storage_ids, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
            ON CONFLICT(file_id) DO UPDATE SET
              chat_id = excluded.chat_id,
              message_id = excluded.message_id,
              file_name = excluded.file_name,
+             folder_path = excluded.folder_path,
              size = excluded.size,
              download_url = excluded.download_url,
              storage_ids = excluded.storage_ids,
              updated_at = datetime('now')`
         )
-        .bind(fileId, (metadata.chatId || metadata.chat_id || (client as any).config?.chatId || null), messageId, fileName, size, downloadUrl, JSON.stringify(storageIds))
+        .bind(
+          fileId,
+          (metadata.chatId || metadata.chat_id || (client as any).config?.chatId || null),
+          messageId,
+          derivedFileName,
+          derivedFolder,
+          size,
+          downloadUrl,
+          JSON.stringify(storageIds)
+        )
         .run();
       }
     }

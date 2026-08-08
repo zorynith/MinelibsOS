@@ -346,6 +346,7 @@ export async function initDatabase(db: D1Database): Promise<void> {
       chat_id TEXT,
       message_id INTEGER,
       file_name TEXT,
+      folder_path TEXT,
       size INTEGER,
       download_url TEXT,
       storage_ids TEXT DEFAULT '[]',
