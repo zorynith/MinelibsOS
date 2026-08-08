@@ -14,7 +14,7 @@ import {
 } from "~/components/icons";
 
 export function meta({ data }: Route.MetaArgs) {
-  const title = data?.siteTitle || "CList";
+  const title = data?.siteTitle || "Minelibs";
   return [
     { title: `${title} - 存储聚合` },
     { name: "description", content: "S3 兼容存储聚合服务" },
@@ -23,7 +23,7 @@ export function meta({ data }: Route.MetaArgs) {
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const db = context.cloudflare.env.DB;
-  const siteTitle = context.cloudflare.env.SITE_TITLE || "CList";
+  const siteTitle = context.cloudflare.env.SITE_TITLE || "Minelibs";
   const siteAnnouncement = context.cloudflare.env.SITE_ANNOUNCEMENT || "";
   const chunkSizeMB = parseInt(context.cloudflare.env.CHUNK_SIZE_MB || "50", 10);
   const webdavEnabled = (context.cloudflare.env.WEBDAV_ENABLED as string) === "true";
@@ -1400,16 +1400,14 @@ function SettingsModal({
             <div className="space-y-4">
               <div className="text-center py-4">
                 <div className="text-3xl font-bold text-zinc-900 dark:text-zinc-100 font-semibold mb-1">{siteTitle}</div>
-                <div className="text-xs text-zinc-500 font-medium">v1.2.0</div>
+                <div className="text-xs text-zinc-500 font-medium">v1.0.0</div>
               </div>
               <div className="text-xs text-zinc-600 dark:text-zinc-400 font-mono space-y-2">
                 <p>S3 兼容存储聚合服务</p>
-                <p className="text-zinc-500">支持: AWS S3 / Cloudflare R2 / 阿里云 OSS / 腾讯云 COS / MinIO / WebDAV / OneDrive / Google Drive / 阿里云盘 / 百度网盘</p>
-                <p>作者: ooyyh</p>
-                <p>联系方式: 3266940347@qq.com</p>
+                <p className="text-zinc-500">支持: AWS S3 / Cloudflare R2 / 阿里云 OSS / 腾讯云 COS / MinIO / Telegram / Github / Discord / HuggingFace / WebDAV / OneDrive / Google Drive / 阿里云盘 / 百度网盘</p>
               </div>
               <div className="border-t border-zinc-200 dark:border-zinc-800 pt-4 text-xs text-zinc-500 font-medium">
-                <p>Powered by Cloudflare Workers && ooyyh</p>
+                <p>Powered by Minelibs</p>
               </div>
             </div>
           )}
@@ -4020,7 +4018,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             <span className="grid h-8 w-8 place-items-center rounded-lg bg-blue-600 text-white shadow-sm shadow-blue-600/20">
               <Cloud className="h-[18px] w-[18px]" />
             </span>
-            <span className="text-lg font-bold tracking-tight">CList</span>
+            <span className="text-lg font-bold tracking-tight">Minelibs</span>
           </div>
           <div className="flex-1 text-center min-w-0">
             <span className="text-sm text-zinc-500 dark:text-zinc-400 truncate block">{siteTitle}</span>
