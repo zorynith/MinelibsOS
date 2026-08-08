@@ -1512,9 +1512,10 @@ function SettingsModal({
                 </div>
                 <button
                   onClick={onToggleTheme}
-                  className="px-3 py-1.5 text-xs font-medium rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition"
+                  className="icon-btn h-8 w-8"
+                  title={isDark ? "切换到亮色" : "切换到暗色"}
                 >
-                  {isDark ? '☀ 亮色' : '☾ 暗色'}
+                  {isDark ? <Sun /> : <Moon />}
                 </button>
               </div>
 
@@ -3005,8 +3006,14 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB, customDomain }: { 
   const uploadFiles = async (fileList: File[]) => {
     if (fileList.length === 0) return;
     const CHUNK_SIZE = chunkSizeMB * 1024 * 1024;
+    const TELEGRAM_MAX_SIZE = 20 * 1024 * 1024; // 20MB
     for (const file of fileList) {
       try {
+        // Telegram 限制单文件不超过 20MB
+        if (storage.type === "telegram" && file.size > TELEGRAM_MAX_SIZE) {
+          alert(`文件 ${file.name} 超过 Telegram 20MB 大小限制，无法上传`);
+          continue;
+        }
         const uploadPath = path ? `${path}/${file.name}` : file.name;
         const canMultipart = supportsMultipart(storage.type);
         if (file.size >= CHUNK_SIZE && canMultipart) {
