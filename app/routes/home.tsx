@@ -765,7 +765,7 @@ function StorageModal({
         alert('恢复请求已提交，完成后请刷新列表。');
         onSave();
       } else {
-        const data = await res.json();
+        const data = (await res.json().catch(() => ({}))) as any;
         alert(data.error || '恢复失败');
       }
     } catch (err) {
