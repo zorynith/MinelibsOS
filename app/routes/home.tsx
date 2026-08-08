@@ -796,14 +796,14 @@ function BackupManagerModal({
     <div className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-700 flex items-center justify-between sticky top-0 bg-white dark:bg-zinc-900 rounded-t-xl">
-          <span className="text-zinc-900 dark:text-zinc-100 font-semibold text-sm">备份管理</span>
+          <span className="text-zinc-900 dark:text-zinc-100 font-semibold text-sm">索引备份管理</span>
           <button onClick={onClose} className="icon-btn h-7 w-7" aria-label="关闭"><X /></button>
         </div>
 
         <div className="p-4 space-y-4">
           {/* 备份区域 */}
           <div className="rounded-lg p-4 border border-zinc-200 dark:border-zinc-700">
-            <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-3">创建备份</div>
+            <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-3">创建索引备份</div>
             {telegramStorages.length > 1 && (
               <select
                 value={selectedStorageId || telegramStorages[0]?.id || ''}
@@ -835,7 +835,7 @@ function BackupManagerModal({
 
           {/* 备份列表 */}
           <div>
-            <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-3">历史备份</div>
+            <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-3">历史索引备份</div>
             {!backupsLoaded ? (
               <div className="flex items-center justify-center gap-2 py-8 text-zinc-400 text-sm">
                 <RefreshCw className="h-4 w-4 animate-spin" /> 加载中...
@@ -864,9 +864,10 @@ function BackupManagerModal({
                     <button
                       onClick={() => handleRestore(b)}
                       disabled={loading}
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded disabled:opacity-50 transition whitespace-nowrap font-medium"
+                      className="p-1 text-zinc-400 hover:text-blue-500 transition disabled:opacity-50"
+                      title="恢复"
                     >
-                      恢复
+                      <Download className="h-3.5 w-3.5" />
                     </button>
                     <button
                       onClick={() => handleDelete(b)}
