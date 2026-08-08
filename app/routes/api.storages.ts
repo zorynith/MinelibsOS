@@ -35,15 +35,16 @@ async function rebuildTelegramSavingFromChat(
   botToken: string,
   chatId: string,
   storageId: number,
+  backupMessageId?: number,
   apiBase = "https://api.telegram.org"
 ): Promise<{ count: number; fromBackup: boolean; details: string }> {
   const apiUrl = `${apiBase}/bot${botToken}`;
 
-  // 策略1: 尝试从 saving.backupMessageId 中直接获取备份文件
+  // 策略1: 使用指定的备份文件或默认备份文件
   const storage = await getStorageById(db, storageId);
-  const backupMessageId = storage?.saving?.backupMessageId as number | undefined;
+  const targetBackupId = backupMessageId || storage?.saving?.backupMessageId as number | undefined;
 
-  if (backupMessageId) {
+  if (targetBackupId) {
     try {
       // 转发备份文件消息到自己，获取文件内容
       const fwdRes = await fetch(`${apiUrl}/forwardMessage`, {
@@ -52,7 +53,7 @@ async function rebuildTelegramSavingFromChat(
         body: JSON.stringify({
           chat_id: chatId,
           from_chat_id: chatId,
-          message_id: backupMessageId,
+          message_id: targetBackupId,
         }),
       });
       const fwdJson = (await fwdRes.json()) as Record<string, any>;
@@ -255,6 +256,7 @@ async function backupTelegramIndexToChat(
   botToken: string,
   chatId: string,
   storageId: number,
+  backupName: string,
   apiBase = "https://api.telegram.org"
 ): Promise<{ ok: boolean; messageId?: number; error?: string }> {
   try {
@@ -270,8 +272,10 @@ async function backupTelegramIndexToChat(
       download_url: string | null;
     }>();
 
+    const safeName = (backupName || `backup-${storageId}`).replace(/[^a-zA-Z0-9_\-.一-龥]/g, "_");
     const backupData = {
       version: 1,
+      name: backupName || "",
       exportedAt: new Date().toISOString(),
       chatId,
       storageId,
@@ -290,8 +294,11 @@ async function backupTelegramIndexToChat(
 
     const formData = new FormData();
     formData.append("chat_id", chatId);
-    formData.append("document", new File([blob], `index-backup-${storageId}.json`, { type: "application/json" }));
-    formData.append("caption", `索引备份 - ${new Date().toLocaleString("zh-CN")}\n文件数: ${backupData.files.length}`);
+    formData.append("document", new File([blob], `${safeName}.json`, { type: "application/json" }));
+    const caption = backupName
+      ? `📦 索引备份: ${backupName}\n${new Date().toLocaleString("zh-CN")}\n文件数: ${backupData.files.length}`
+      : `索引备份 - ${new Date().toLocaleString("zh-CN")}\n文件数: ${backupData.files.length}`;
+    formData.append("caption", caption);
 
     const response = await fetch(`${apiBase}/bot${botToken}/sendDocument`, {
       method: "POST",
@@ -305,27 +312,36 @@ async function backupTelegramIndexToChat(
 
     const newMessageId = json.result?.message_id;
 
-    // 保存 backupMessageId 到 saving 中，以便恢复时快速定位
+    // 保存到 backupList 中，支持多个备份
     const storage = await getStorageById(db, storageId);
     const existingSaving = storage?.saving || {};
-    await updateStorage(db, storageId, {
-      saving: { ...existingSaving, backupMessageId: newMessageId },
+    const backupList: Array<{ messageId: number; name: string; date: string; fileCount: number }> =
+      existingSaving.backupList || [];
+    
+    backupList.push({
+      messageId: newMessageId,
+      name: backupName || `备份 ${backupList.length + 1}`,
+      date: new Date().toISOString(),
+      fileCount: backupData.files.length,
     });
 
-    // 删除旧的备份消息（如果有的话，且不是刚发的）
-    const oldBackupId = existingSaving.backupMessageId as number | undefined;
-    if (oldBackupId && oldBackupId !== newMessageId) {
-      await fetch(`${apiBase}/bot${botToken}/deleteMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, message_id: oldBackupId }),
-      }).catch(() => {});
-    }
+    await updateStorage(db, storageId, {
+      saving: { ...existingSaving, backupList, backupMessageId: newMessageId },
+    });
 
     return { ok: true, messageId: newMessageId };
   } catch (err) {
     return { ok: false, error: String(err) };
   }
+}
+
+/**
+ * 获取备份列表
+ */
+async function getTelegramBackupList(db: D1Database, storageId: number): Promise<Array<{ messageId: number; name: string; date: string; fileCount: number }>> {
+  const storage = await getStorageById(db, storageId);
+  if (!storage) return [];
+  return (storage.saving?.backupList as Array<any>) || [];
 }
 
 async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null, storageId: number) {
@@ -587,7 +603,7 @@ export async function action({ request, context }: Route.ActionArgs) {
 
     // 从 Telegram 聊天恢复索引（D1 丢失后的最后手段）
     if (actionType === "restore-telegram-from-chat") {
-      const { storageId } = body as { storageId?: number };
+      const { storageId, backupMessageId } = body as { storageId?: number; backupMessageId?: number };
       if (!storageId) {
         return Response.json({ error: "storageId is required" }, { status: 400 });
       }
@@ -603,6 +619,7 @@ export async function action({ request, context }: Route.ActionArgs) {
         }
         const result = await rebuildTelegramSavingFromChat(
           db, String(botToken), String(chatId), Number(storageId),
+          backupMessageId,
           storage.config?.apiBase
         );
         return Response.json({ success: true, count: result.count, fromBackup: result.fromBackup, details: result.details });
@@ -611,9 +628,19 @@ export async function action({ request, context }: Route.ActionArgs) {
       }
     }
 
+    // 获取备份列表
+    if (actionType === "list-telegram-backups") {
+      const { storageId } = body as { storageId?: number };
+      if (!storageId) {
+        return Response.json({ error: "storageId is required" }, { status: 400 });
+      }
+      const list = await getTelegramBackupList(db, Number(storageId));
+      return Response.json({ backups: list });
+    }
+
     // 备份索引到 Telegram 聊天
     if (actionType === "backup-telegram-index") {
-      const { storageId } = body as { storageId?: number };
+      const { storageId, backupName } = body as { storageId?: number; backupName?: string };
       if (!storageId) {
         return Response.json({ error: "storageId is required" }, { status: 400 });
       }
@@ -629,6 +656,7 @@ export async function action({ request, context }: Route.ActionArgs) {
         }
         const result = await backupTelegramIndexToChat(
           db, String(botToken), String(chatId), Number(storageId),
+          backupName || "",
           storage.config?.apiBase
         );
         if (result.ok) {

@@ -600,6 +600,25 @@ function StorageModal({
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showBackupPanel, setShowBackupPanel] = useState(false);
+  const [backupName, setBackupName] = useState("");
+  const [backupList, setBackupList] = useState<Array<{ messageId: number; name: string; date: string; fileCount: number }>>([]);
+  const [restoreSource, setRestoreSource] = useState<"db" | "backup" | "chat">("db");
+  const [selectedBackupId, setSelectedBackupId] = useState<number | undefined>(undefined);
+
+  const loadBackupList = async () => {
+    if (!storage?.id) return;
+    try {
+      const res = await fetch('/api/storages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list-telegram-backups', storageId: storage.id }),
+      });
+      const data = await res.json();
+      setBackupList(data.backups || []);
+    } catch {}
+  };
+
   const driveConfig = driveConfigMap[formData.type || ""];
   const isS3 = formData.type === "s3";
   const isR2 = formData.type === "r2";
@@ -744,49 +763,20 @@ function StorageModal({
     }
   };
 
-  const handleManualRestore = async () => {
-    if (!storage || !storage.id) {
-      alert('请先保存存储后再执行恢复。');
-      return;
-    }
-    const chatId = (formData.config || {}).chatId || (formData.config || {}).chat_id || storage.config?.chatId || storage.config?.chat_id;
-    if (!chatId) {
-      alert('未配置 chatId，无法恢复。');
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await fetch('/api/storages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'restore-telegram', storageId: storage.id, chatId }),
-      });
-      if (res.ok) {
-        alert('恢复请求已提交，完成后请刷新列表。');
-        onSave();
-      } else {
-        const data = (await res.json().catch(() => ({}))) as any;
-        alert(data.error || '恢复失败');
-      }
-    } catch (err) {
-      alert('网络错误');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRestoreFromChat = async () => {
+  const handleRestoreFromChat = async (backupMessageId?: number) => {
     if (!storage || !storage.id) {
       alert('请先保存存储。');
       return;
     }
-    if (!confirm('从 Telegram 聊天恢复索引：\n\n将扫描聊天中 bot 自己发送的文件通知消息来重建索引。\n适用于 D1 数据库丢失后的恢复。\n\n继续？')) return;
     setLoading(true);
+    setShowBackupPanel(false);
     try {
+      const body: any = { action: 'restore-telegram-from-chat', storageId: storage.id };
+      if (backupMessageId) body.backupMessageId = backupMessageId;
       const res = await fetch('/api/storages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'restore-telegram-from-chat', storageId: storage.id }),
+        body: JSON.stringify(body),
       });
       const data = (await res.json()) as any;
       if (res.ok) {
@@ -810,20 +800,52 @@ function StorageModal({
       alert('请先保存存储。');
       return;
     }
-    if (!confirm('将当前文件索引备份为 JSON 文件上传到 Telegram 聊天。\n\n建议定期执行，以便在 D1 丢失后恢复。\n\n继续？')) return;
     setLoading(true);
+    setShowBackupPanel(false);
     try {
       const res = await fetch('/api/storages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'backup-telegram-index', storageId: storage.id }),
+        body: JSON.stringify({ action: 'backup-telegram-index', storageId: storage.id, backupName: backupName.trim() || undefined }),
       });
       const data = (await res.json()) as any;
       if (res.ok) {
-        alert(`索引备份完成！消息 ID: ${data.messageId}`);
+        alert(`索引备份完成！${data.messageId ? `消息 ID: ${data.messageId}` : ''}`);
         onSave();
       } else {
         alert(data.error || '备份失败');
+      }
+    } catch {
+      alert('网络错误');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRestoreFromDb = async () => {
+    if (!storage || !storage.id) {
+      alert('请先保存存储。');
+      return;
+    }
+    const chatId = (formData.config || {}).chatId || (formData.config || {}).chat_id || storage.config?.chatId || storage.config?.chat_id;
+    if (!chatId) {
+      alert('未配置 chatId，无法恢复。');
+      return;
+    }
+    setLoading(true);
+    setShowBackupPanel(false);
+    try {
+      const res = await fetch('/api/storages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'restore-telegram', storageId: storage.id, chatId }),
+      });
+      if (res.ok) {
+        alert('从 D1 数据库恢复完成，请刷新列表。');
+        onSave();
+      } else {
+        const data = (await res.json().catch(() => ({}))) as any;
+        alert(data.error || '恢复失败');
       }
     } catch {
       alert('网络错误');
@@ -1025,32 +1047,133 @@ function StorageModal({
               取消
             </button>
             {storage && storage.type === 'telegram' && (
-              <>
+              <div className="flex-1 relative">
                 <button
                   type="button"
-                  onClick={handleManualRestore}
+                  onClick={() => { setShowBackupPanel(!showBackupPanel); if (!showBackupPanel) loadBackupList(); }}
                   disabled={loading}
-                  className="flex-1 py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white text-sm disabled:opacity-50 transition rounded"
+                  className="w-full py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white text-sm disabled:opacity-50 transition rounded flex items-center justify-center gap-1"
                 >
-                  {loading ? '恢复中…' : '恢复索引'}
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  {loading ? '处理中…' : '备份/恢复'}
                 </button>
-                <button
-                  type="button"
-                  onClick={handleBackupIndexToChat}
-                  disabled={loading}
-                  className="flex-1 py-2 px-4 bg-green-600 hover:bg-green-500 text-white text-sm disabled:opacity-50 transition rounded"
-                >
-                  备份索引
-                </button>
-                <button
-                  type="button"
-                  onClick={handleRestoreFromChat}
-                  disabled={loading}
-                  className="flex-1 py-2 px-4 bg-purple-600 hover:bg-purple-500 text-white text-sm disabled:opacity-50 transition rounded"
-                >
-                  聊天恢复
-                </button>
-              </>
+                {showBackupPanel && (
+                  <div className="absolute bottom-full left-0 right-0 mb-1 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-xl p-3 z-50">
+                    {/* 备份区域 */}
+                    <div className="mb-3">
+                      <div className="text-xs font-medium text-zinc-500 mb-2">备份索引到 Telegram</div>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={backupName}
+                          onChange={(e) => setBackupName(e.target.value)}
+                          placeholder="备份名称（可选）"
+                          className="flex-1 px-2 py-1.5 text-xs border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 rounded"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleBackupIndexToChat}
+                          disabled={loading}
+                          className="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white text-xs rounded disabled:opacity-50 transition whitespace-nowrap"
+                        >
+                          备份
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 恢复区域 */}
+                    <div>
+                      <div className="text-xs font-medium text-zinc-500 mb-2">恢复索引</div>
+                      <div className="flex gap-2 mb-2">
+                        <button
+                          type="button"
+                          onClick={() => { setRestoreSource("db"); setSelectedBackupId(undefined); }}
+                          className={`flex-1 px-2 py-1.5 text-xs rounded border transition ${
+                            restoreSource === "db"
+                              ? "bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-600 text-amber-800 dark:text-amber-300"
+                              : "border-zinc-200 dark:border-zinc-600 text-zinc-600 dark:text-zinc-400 hover:border-zinc-400"
+                          }`}
+                        >
+                          从 D1 恢复
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setRestoreSource("backup"); setSelectedBackupId(undefined); }}
+                          className={`flex-1 px-2 py-1.5 text-xs rounded border transition ${
+                            restoreSource === "backup"
+                              ? "bg-purple-100 dark:bg-purple-900/30 border-purple-300 dark:border-purple-600 text-purple-800 dark:text-purple-300"
+                              : "border-zinc-200 dark:border-zinc-600 text-zinc-600 dark:text-zinc-400 hover:border-zinc-400"
+                          }`}
+                        >
+                          从备份文件
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setRestoreSource("chat"); setSelectedBackupId(undefined); }}
+                          className={`flex-1 px-2 py-1.5 text-xs rounded border transition ${
+                            restoreSource === "chat"
+                              ? "bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-800 dark:text-blue-300"
+                              : "border-zinc-200 dark:border-zinc-600 text-zinc-600 dark:text-zinc-400 hover:border-zinc-400"
+                          }`}
+                        >
+                          扫描聊天
+                        </button>
+                      </div>
+
+                      {/* 备份列表（从备份文件恢复时显示） */}
+                      {restoreSource === "backup" && (
+                        <div className="mb-2 max-h-32 overflow-y-auto">
+                          {backupList.length === 0 ? (
+                            <div className="text-xs text-zinc-400 py-2 text-center">暂无备份，请先备份</div>
+                          ) : (
+                            backupList.map((b) => (
+                              <label
+                                key={b.messageId}
+                                className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer rounded text-xs transition ${
+                                  selectedBackupId === b.messageId
+                                    ? "bg-purple-100 dark:bg-purple-900/30"
+                                    : "hover:bg-zinc-50 dark:hover:bg-zinc-700"
+                                }`}
+                              >
+                                <input
+                                  type="radio"
+                                  name="backupSelect"
+                                  checked={selectedBackupId === b.messageId}
+                                  onChange={() => setSelectedBackupId(b.messageId)}
+                                  className="w-3 h-3"
+                                />
+                                <span className="flex-1 text-zinc-700 dark:text-zinc-300">{b.name}</span>
+                                <span className="text-zinc-400">{b.fileCount} 文件</span>
+                                <span className="text-zinc-400 text-[10px]">{new Date(b.date).toLocaleDateString("zh-CN")}</span>
+                              </label>
+                            ))
+                          )}
+                        </div>
+                      )}
+
+                      {/* 恢复按钮 */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (restoreSource === "db") handleRestoreFromDb();
+                          else if (restoreSource === "backup") handleRestoreFromChat(selectedBackupId);
+                          else handleRestoreFromChat();
+                        }}
+                        disabled={loading || (restoreSource === "backup" && !selectedBackupId && backupList.length > 0)}
+                        className={`w-full py-1.5 text-xs rounded transition disabled:opacity-50 ${
+                          restoreSource === "db"
+                            ? "bg-amber-600 hover:bg-amber-500 text-white"
+                            : restoreSource === "backup"
+                            ? "bg-purple-600 hover:bg-purple-500 text-white"
+                            : "bg-blue-600 hover:bg-blue-500 text-white"
+                        }`}
+                      >
+                        {restoreSource === "db" ? "从 D1 数据库恢复" : restoreSource === "backup" ? "从选中备份恢复" : "扫描聊天消息恢复"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
             <button
               type="submit"
