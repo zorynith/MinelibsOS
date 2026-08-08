@@ -775,6 +775,60 @@ function StorageModal({
     }
   };
 
+  const handleRestoreFromChat = async () => {
+    if (!storage || !storage.id) {
+      alert('请先保存存储。');
+      return;
+    }
+    if (!confirm('从 Telegram 聊天恢复索引：\n\n将扫描聊天中 bot 自己发送的文件通知消息来重建索引。\n适用于 D1 数据库丢失后的恢复。\n\n继续？')) return;
+    setLoading(true);
+    try {
+      const res = await fetch('/api/storages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'restore-telegram-from-chat', storageId: storage.id }),
+      });
+      const data = (await res.json()) as any;
+      if (res.ok) {
+        alert(`从聊天恢复了 ${data.count || 0} 个文件${data.fromBackup ? '（来自备份文件）' : ''}，请刷新列表。`);
+        onSave();
+      } else {
+        alert(data.error || '恢复失败');
+      }
+    } catch {
+      alert('网络错误');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBackupIndexToChat = async () => {
+    if (!storage || !storage.id) {
+      alert('请先保存存储。');
+      return;
+    }
+    if (!confirm('将当前文件索引备份为 JSON 文件上传到 Telegram 聊天。\n\n建议定期执行，以便在 D1 丢失后恢复。\n\n继续？')) return;
+    setLoading(true);
+    try {
+      const res = await fetch('/api/storages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'backup-telegram-index', storageId: storage.id }),
+      });
+      const data = (await res.json()) as any;
+      if (res.ok) {
+        alert(`索引备份完成！消息 ID: ${data.messageId}`);
+        onSave();
+      } else {
+        alert(data.error || '备份失败');
+      }
+    } catch {
+      alert('网络错误');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onCancel}>
       <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -968,14 +1022,32 @@ function StorageModal({
               取消
             </button>
             {storage && storage.type === 'telegram' && (
-              <button
-                type="button"
-                onClick={handleManualRestore}
-                disabled={loading}
-                className="flex-1 py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white text-sm disabled:opacity-50 transition rounded"
-              >
-                {loading ? '恢复中…' : '恢复索引'}
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleManualRestore}
+                  disabled={loading}
+                  className="flex-1 py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white text-sm disabled:opacity-50 transition rounded"
+                >
+                  {loading ? '恢复中…' : '恢复索引'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBackupIndexToChat}
+                  disabled={loading}
+                  className="flex-1 py-2 px-4 bg-green-600 hover:bg-green-500 text-white text-sm disabled:opacity-50 transition rounded"
+                >
+                  备份索引
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRestoreFromChat}
+                  disabled={loading}
+                  className="flex-1 py-2 px-4 bg-purple-600 hover:bg-purple-500 text-white text-sm disabled:opacity-50 transition rounded"
+                >
+                  聊天恢复
+                </button>
+              </>
             )}
             <button
               type="submit"

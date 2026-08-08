@@ -22,13 +22,336 @@ import {
 } from "~/lib/auth";
 import { getRequestMeta, logAudit } from "~/lib/audit";
 
+/**
+ * 从 Telegram 聊天记录中恢复索引（通过 getUpdates 扫描最近的文档消息）
+ * 这是 D1 丢失后的最后手段
+ */
+async function rebuildTelegramSavingFromChat(
+  db: D1Database,
+  botToken: string,
+  chatId: string,
+  storageId: number,
+  apiBase = "https://api.telegram.org"
+): Promise<{ count: number; fromBackup: boolean }> {
+  const apiUrl = `${apiBase}/bot${botToken}`;
+
+  // 策略1: 尝试从 saving.backupMessageId 中直接获取备份文件
+  const storage = await getStorageById(db, storageId);
+  const backupMessageId = storage?.saving?.backupMessageId as number | undefined;
+
+  if (backupMessageId) {
+    try {
+      // 尝试转发备份文件消息来获取其内容（forward 到同一 chat）
+      const fwdRes = await fetch(`${apiUrl}/forwardMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          from_chat_id: chatId,
+          message_id: backupMessageId,
+        }),
+      });
+      const fwdJson = (await fwdRes.json()) as Record<string, any>;
+      
+      if (fwdRes.ok && fwdJson.ok) {
+        const doc = fwdJson.result?.document;
+        if (doc?.file_id) {
+          // 下载备份文件
+          const fileRes = await fetch(`${apiUrl}/getFile?file_id=${encodeURIComponent(doc.file_id)}`);
+          const fileJson = (await fileRes.json()) as Record<string, any>;
+          const filePath = fileJson?.result?.file_path;
+          if (filePath) {
+            const downloadRes = await fetch(`${apiBase}/file/bot${botToken}/${encodeURIComponent(filePath)}`);
+            const backupData = (await downloadRes.json()) as {
+              version: number;
+              exportedAt: string;
+              files: Array<{
+                file_id: string;
+                message_id: number;
+                file_name: string;
+                folder_path: string;
+                size: number;
+                download_url: string;
+              }>;
+            };
+
+            if (backupData.files && Array.isArray(backupData.files)) {
+              // 删除刚才转发的消息
+              await fetch(`${apiUrl}/deleteMessage`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  chat_id: chatId,
+                  message_id: fwdJson.result.message_id,
+                }),
+              }).catch(() => {});
+
+              // 重建索引
+              const newObjects: Record<string, any> = {};
+              const folders = new Set<string>();
+              for (const f of backupData.files) {
+                const folderPath = f.folder_path || "";
+                const key = folderPath ? `${folderPath.replace(/\/+$/, "")}/${f.file_name}` : f.file_name;
+                if (folderPath) folders.add(folderPath.replace(/\/+$/, ""));
+                newObjects[key] = {
+                  kind: "file",
+                  path: key,
+                  downloadUrl: f.download_url || "",
+                  contentType: "application/octet-stream",
+                  size: f.size || 0,
+                  lastModified: new Date().toISOString(),
+                  metadata: {
+                    telegramFileId: f.file_id,
+                    telegramMessageId: f.message_id || null,
+                    fileName: f.file_name || null,
+                    folderPath: folderPath || null,
+                  },
+                };
+              }
+              for (const f of Array.from(folders)) {
+                const dirKey = f.endsWith("/") ? f : `${f}/`;
+                if (!newObjects[dirKey]) {
+                  newObjects[dirKey] = {
+                    kind: "directory", path: dirKey, size: 0,
+                    contentType: "application/x-directory",
+                    lastModified: new Date().toISOString(),
+                  };
+                }
+              }
+              if (Object.keys(newObjects).length > 0) {
+                await updateStorage(db, storageId, { saving: { objects: newObjects } });
+                // 同时写入 telegram_files 表
+                for (const f of backupData.files) {
+                  await db.prepare(
+                    `INSERT INTO telegram_files (file_id, chat_id, message_id, file_name, folder_path, size, download_url, storage_ids, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                     ON CONFLICT(file_id) DO UPDATE SET
+                       chat_id = COALESCE(excluded.chat_id, telegram_files.chat_id),
+                       message_id = COALESCE(excluded.message_id, telegram_files.message_id),
+                       file_name = excluded.file_name,
+                       folder_path = excluded.folder_path,
+                       size = excluded.size,
+                       download_url = excluded.download_url,
+                       updated_at = datetime('now')`
+                  )
+                  .bind(f.file_id, chatId, f.message_id, f.file_name, f.folder_path || null, f.size, f.download_url, JSON.stringify([String(storageId)]))
+                  .run();
+                }
+                return { count: backupData.files.length, fromBackup: true };
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to restore from backup message:", err);
+    }
+  }
+
+  // 策略2: 通过 getUpdates 扫描最近的消息
+  try {
+    const updatesRes = await fetch(`${apiUrl}/getUpdates?limit=100&timeout=0`);
+    const updatesJson = (await updatesRes.json()) as { ok: boolean; result: Array<{
+      message?: {
+        message_id: number;
+        document?: { file_id: string; file_name?: string; file_size?: number };
+        caption?: string;
+      };
+      channel_post?: {
+        message_id: number;
+        document?: { file_id: string; file_name?: string; file_size?: number };
+        caption?: string;
+      };
+    }> };
+
+    if (!updatesJson.ok || !Array.isArray(updatesJson.result)) {
+      return { count: 0, fromBackup: false };
+    }
+
+    const fileMessages: Array<{
+      file_id: string;
+      message_id: number;
+      file_name: string;
+      caption: string;
+    }> = [];
+
+    for (const update of updatesJson.result) {
+      const msg = update.message || update.channel_post;
+      if (!msg?.document?.file_id || !msg.caption) continue;
+      if (!msg.caption.includes("文件上传完成")) continue;
+      fileMessages.push({
+        file_id: msg.document.file_id,
+        message_id: msg.message_id,
+        file_name: msg.document.file_name || "unknown",
+        caption: msg.caption,
+      });
+    }
+
+    if (fileMessages.length === 0) return { count: 0, fromBackup: false };
+
+    // 解析每个通知消息
+    const newObjects: Record<string, any> = {};
+    const folders = new Set<string>();
+
+    for (const fm of fileMessages) {
+      const pathMatch = fm.caption.match(/路径:\s*(.+)/);
+      const urlMatch = fm.caption.match(/下载链接:\s*(.+)/);
+
+      const storagePath = pathMatch?.[1]?.trim() || fm.file_name;
+      const downloadUrl = urlMatch?.[1]?.trim() || "";
+      let folderPath = "";
+      let fileName = storagePath;
+
+      if (storagePath.includes("/")) {
+        const lastSlash = storagePath.lastIndexOf("/");
+        folderPath = storagePath.substring(0, lastSlash);
+        fileName = storagePath.substring(lastSlash + 1);
+      }
+
+      if (folderPath) folders.add(folderPath);
+
+      newObjects[storagePath] = {
+        kind: "file",
+        path: storagePath,
+        downloadUrl,
+        contentType: "application/octet-stream",
+        size: 0,
+        lastModified: new Date().toISOString(),
+        metadata: {
+          telegramFileId: fm.file_id,
+          telegramMessageId: fm.message_id,
+          fileName,
+          folderPath: folderPath || null,
+          storagePath,
+        },
+      };
+
+      // 写入 telegram_files 表
+      await db.prepare(
+        `INSERT INTO telegram_files (file_id, chat_id, message_id, file_name, folder_path, size, download_url, storage_ids, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+         ON CONFLICT(file_id) DO UPDATE SET
+           chat_id = COALESCE(excluded.chat_id, telegram_files.chat_id),
+           message_id = COALESCE(excluded.message_id, telegram_files.message_id),
+           file_name = excluded.file_name,
+           folder_path = excluded.folder_path,
+           download_url = excluded.download_url,
+           updated_at = datetime('now')`
+      )
+      .bind(fm.file_id, chatId, fm.message_id, fileName, folderPath || null, 0, downloadUrl, JSON.stringify([String(storageId)]))
+      .run();
+    }
+
+    for (const f of Array.from(folders)) {
+      const dirKey = f.endsWith("/") ? f : `${f}/`;
+      if (!newObjects[dirKey]) {
+        newObjects[dirKey] = {
+          kind: "directory", path: dirKey, size: 0,
+          contentType: "application/x-directory",
+          lastModified: new Date().toISOString(),
+        };
+      }
+    }
+
+    if (Object.keys(newObjects).length > 0) {
+      await updateStorage(db, storageId, { saving: { objects: newObjects } });
+    }
+
+    return { count: fileMessages.length, fromBackup: false };
+  } catch (err) {
+    console.error("Failed to restore from getUpdates:", err);
+    return { count: 0, fromBackup: false };
+  }
+}
+
+/**
+ * 将当前索引备份为一个 JSON 文件并上传到 Telegram 聊天
+ */
+async function backupTelegramIndexToChat(
+  db: D1Database,
+  botToken: string,
+  chatId: string,
+  storageId: number,
+  apiBase = "https://api.telegram.org"
+): Promise<{ ok: boolean; messageId?: number; error?: string }> {
+  try {
+    // 从 telegram_files 表导出所有文件
+    const rows = await db.prepare(
+      "SELECT file_id, message_id, file_name, folder_path, size, download_url FROM telegram_files WHERE chat_id = ?"
+    ).bind(chatId).all<{
+      file_id: string;
+      message_id: number | null;
+      file_name: string;
+      folder_path: string | null;
+      size: number | null;
+      download_url: string | null;
+    }>();
+
+    const backupData = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      chatId,
+      storageId,
+      files: (rows.results || []).map((r) => ({
+        file_id: r.file_id,
+        message_id: r.message_id,
+        file_name: r.file_name,
+        folder_path: r.folder_path || "",
+        size: r.size || 0,
+        download_url: r.download_url || "",
+      })),
+    };
+
+    const jsonStr = JSON.stringify(backupData, null, 2);
+    const blob = new Blob([jsonStr], { type: "application/json" });
+
+    const formData = new FormData();
+    formData.append("chat_id", chatId);
+    formData.append("document", new File([blob], `index-backup-${storageId}.json`, { type: "application/json" }));
+    formData.append("caption", `索引备份 - ${new Date().toLocaleString("zh-CN")}\n文件数: ${backupData.files.length}`);
+
+    const response = await fetch(`${apiBase}/bot${botToken}/sendDocument`, {
+      method: "POST",
+      body: formData,
+    });
+    const json = (await response.json()) as Record<string, any>;
+
+    if (!response.ok || !json.ok) {
+      return { ok: false, error: json.description || "Upload failed" };
+    }
+
+    const newMessageId = json.result?.message_id;
+
+    // 保存 backupMessageId 到 saving 中，以便恢复时快速定位
+    const storage = await getStorageById(db, storageId);
+    const existingSaving = storage?.saving || {};
+    await updateStorage(db, storageId, {
+      saving: { ...existingSaving, backupMessageId: newMessageId },
+    });
+
+    // 删除旧的备份消息（如果有的话，且不是刚发的）
+    const oldBackupId = existingSaving.backupMessageId as number | undefined;
+    if (oldBackupId && oldBackupId !== newMessageId) {
+      await fetch(`${apiBase}/bot${botToken}/deleteMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, message_id: oldBackupId }),
+      }).catch(() => {});
+    }
+
+    return { ok: true, messageId: newMessageId };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
 async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null, storageId: number) {
   if (!chatId) return;
   try {
     const rows = await db
-      .prepare("SELECT file_id, message_id, file_name, size, download_url, updated_at, storage_ids FROM telegram_files WHERE chat_id = ? ORDER BY updated_at DESC")
+      .prepare("SELECT file_id, message_id, file_name, folder_path, size, download_url, updated_at, storage_ids FROM telegram_files WHERE chat_id = ? ORDER BY updated_at DESC")
       .bind(String(chatId))
-      .all<{ file_id: string; message_id: number | null; file_name: string; size: number | null; download_url: string | null; updated_at: string; storage_ids: string }>();
+      .all<{ file_id: string; message_id: number | null; file_name: string; folder_path: string | null; size: number | null; download_url: string | null; updated_at: string; storage_ids: string }>();
 
     // Build map of new objects from DB and collect folders
     const newObjects: Record<string, any> = {};
@@ -36,7 +359,7 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
     for (const r of rows.results || []) {
       const id = String(r.file_id || "");
       const fileName = r.file_name || id;
-      const folderPath = (r as any).folder_path || "";
+      const folderPath = r.folder_path || "";
       const key = folderPath ? `${folderPath.replace(/\/+$/, "")}/${fileName}` : fileName;
       if (folderPath) folders.add(folderPath.replace(/\/+$/, ""));
       newObjects[key] = {
@@ -265,7 +588,7 @@ export async function action({ request, context }: Route.ActionArgs) {
       return Response.json({ error: "Unauthorized" }, { status: 403 });
     }
 
-    // Admin manual restore action
+    // Admin manual restore action (从 D1 telegram_files 表恢复)
     if (actionType === "restore-telegram") {
       const { storageId, chatId } = body as { storageId?: number; chatId?: string };
       if (!storageId || !chatId) {
@@ -276,6 +599,61 @@ export async function action({ request, context }: Route.ActionArgs) {
         return Response.json({ success: true });
       } catch (err) {
         return Response.json({ error: err instanceof Error ? err.message : "restore failed" }, { status: 500 });
+      }
+    }
+
+    // 从 Telegram 聊天恢复索引（D1 丢失后的最后手段）
+    if (actionType === "restore-telegram-from-chat") {
+      const { storageId } = body as { storageId?: number };
+      if (!storageId) {
+        return Response.json({ error: "storageId is required" }, { status: 400 });
+      }
+      try {
+        const storage = await getStorageById(db, Number(storageId));
+        if (!storage || storage.type !== "telegram") {
+          return Response.json({ error: "Storage not found or not Telegram type" }, { status: 400 });
+        }
+        const botToken = storage.config?.botToken;
+        const chatId = storage.config?.chatId || storage.config?.chat_id;
+        if (!botToken || !chatId) {
+          return Response.json({ error: "Missing botToken or chatId in storage config" }, { status: 400 });
+        }
+        const result = await rebuildTelegramSavingFromChat(
+          db, String(botToken), String(chatId), Number(storageId),
+          storage.config?.apiBase
+        );
+        return Response.json({ success: true, count: result.count, fromBackup: result.fromBackup });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "restore from chat failed" }, { status: 500 });
+      }
+    }
+
+    // 备份索引到 Telegram 聊天
+    if (actionType === "backup-telegram-index") {
+      const { storageId } = body as { storageId?: number };
+      if (!storageId) {
+        return Response.json({ error: "storageId is required" }, { status: 400 });
+      }
+      try {
+        const storage = await getStorageById(db, Number(storageId));
+        if (!storage || storage.type !== "telegram") {
+          return Response.json({ error: "Storage not found or not Telegram type" }, { status: 400 });
+        }
+        const botToken = storage.config?.botToken;
+        const chatId = storage.config?.chatId || storage.config?.chat_id;
+        if (!botToken || !chatId) {
+          return Response.json({ error: "Missing botToken or chatId in storage config" }, { status: 400 });
+        }
+        const result = await backupTelegramIndexToChat(
+          db, String(botToken), String(chatId), Number(storageId),
+          storage.config?.apiBase
+        );
+        if (result.ok) {
+          return Response.json({ success: true, messageId: result.messageId });
+        }
+        return Response.json({ error: result.error || "Backup failed" }, { status: 500 });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "backup failed" }, { status: 500 });
       }
     }
 

@@ -411,6 +411,7 @@ export class TelegramStorageClient extends RegistryBackedStorageClient {
         telegramFileId: fileId,
         telegramMessageId: messageId,
         storagePath: normalizedKey,
+        chatId,
       },
     });
 

@@ -79,12 +79,16 @@ async function persistClientState(
         }
         if (!storageIds.includes(String(storageId))) storageIds.push(String(storageId));
 
+        // Resolve chatId: prefer metadata, then client config
+        const clientConfig = (client as any).config || {};
+        const chatId = metadata.chatId || metadata.chat_id || clientConfig.chatId || clientConfig.chat_id || null;
+
         await db.prepare(
           `INSERT INTO telegram_files (file_id, chat_id, message_id, file_name, folder_path, size, download_url, storage_ids, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
            ON CONFLICT(file_id) DO UPDATE SET
-             chat_id = excluded.chat_id,
-             message_id = excluded.message_id,
+             chat_id = COALESCE(excluded.chat_id, telegram_files.chat_id),
+             message_id = COALESCE(excluded.message_id, telegram_files.message_id),
              file_name = excluded.file_name,
              folder_path = excluded.folder_path,
              size = excluded.size,
@@ -94,7 +98,7 @@ async function persistClientState(
         )
         .bind(
           fileId,
-          (metadata.chatId || metadata.chat_id || (client as any).config?.chatId || null),
+          chatId,
           messageId,
           derivedFileName,
           derivedFolder,
