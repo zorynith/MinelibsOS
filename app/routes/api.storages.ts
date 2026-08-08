@@ -22,6 +22,40 @@ import {
 } from "~/lib/auth";
 import { getRequestMeta, logAudit } from "~/lib/audit";
 
+async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null, storageId: number) {
+  if (!chatId) return;
+  try {
+    const rows = await db
+      .prepare("SELECT file_id, message_id, file_name, size, download_url, updated_at FROM telegram_files WHERE chat_id = ? ORDER BY updated_at DESC")
+      .bind(String(chatId))
+      .all<{ file_id: string; message_id: number | null; file_name: string; size: number | null; download_url: string | null; updated_at: string }>();
+
+    const objects: Record<string, any> = {};
+    for (const r of rows.results || []) {
+      const key = String(r.file_id || r.file_name || r.file_id);
+      objects[key] = {
+        kind: "file",
+        path: key,
+        downloadUrl: r.download_url || "",
+        contentType: "application/octet-stream",
+        size: r.size || 0,
+        lastModified: r.updated_at || new Date().toISOString(),
+        metadata: {
+          telegramFileId: r.file_id,
+          telegramMessageId: r.message_id || null,
+          fileName: r.file_name || null,
+        },
+      };
+    }
+
+    if (Object.keys(objects).length > 0) {
+      await updateStorage(db, storageId, { saving: { objects } });
+    }
+  } catch (err) {
+    console.error("Failed to rebuild telegram saving from db:", err);
+  }
+}
+
 export async function loader({ request, context }: Route.LoaderArgs) {
   const db = context.cloudflare.env.DB;
   await initDatabase(db);
@@ -207,6 +241,15 @@ export async function action({ request, context }: Route.ActionArgs) {
           guestUpload: storage.guestUpload,
         },
       });
+      // If Telegram storage, attempt to restore saved objects from telegram_files
+      try {
+        if ((storage.type || "").toLowerCase() === "telegram") {
+          const configChatId = (body as any)?.config?.chatId || storage.config?.chatId || storage.config?.chat_id || null;
+          await rebuildTelegramSavingFromDb(db, configChatId ? String(configChatId) : null, storage.id);
+        }
+      } catch (e) {
+        console.error("telegram restore on create failed:", e);
+      }
       return Response.json({ storage: { ...safeStorage, secretAccessKey: "***" } });
     } catch (error) {
       return Response.json(
@@ -246,6 +289,17 @@ export async function action({ request, context }: Route.ActionArgs) {
           guestUpload: storage.guestUpload,
         },
       });
+      // If Telegram storage and chatId provided/changed, attempt to restore from telegram_files
+      try {
+        if ((storage.type || "").toLowerCase() === "telegram") {
+          const configChatId = (input as any)?.config?.chatId || (input as any)?.config?.chat_id || storage.config?.chatId || storage.config?.chat_id || null;
+          if (configChatId) {
+            await rebuildTelegramSavingFromDb(db, String(configChatId), storage.id);
+          }
+        }
+      } catch (e) {
+        console.error("telegram restore on update failed:", e);
+      }
       return Response.json({ storage: { ...safeStorage, secretAccessKey: "***" } });
     } catch (error) {
       return Response.json(
