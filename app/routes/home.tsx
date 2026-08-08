@@ -644,8 +644,8 @@ function ShareManagerModal({
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate">{s.filePath}</div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-zinc-400">{s.isDirectory ? '📁' : '📄'}</span>
-                      {s.passwordHash && <span className="text-xs text-amber-500">🔒</span>}
+                      {s.isDirectory ? <Folder className="h-3.5 w-3.5 text-zinc-400" /> : <FileText className="h-3.5 w-3.5 text-zinc-400" />}
+                      {s.passwordHash && <span className="text-xs text-amber-500"><ShieldCheck className="h-3 w-3 inline" /></span>}
                       {s.expiresAt && <span className="text-xs text-zinc-400">过期: {new Date(s.expiresAt).toLocaleDateString("zh-CN")}</span>}
                       <span className="text-xs text-zinc-400">{new Date(s.createdAt).toLocaleDateString("zh-CN")}</span>
                     </div>
@@ -3621,9 +3621,8 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB, customDomain }: { 
             </>
           )}
           {path && (
-            <button onClick={goUp} className="btn btn-sm btn-ghost" title="返回上级目录">
+            <button onClick={goUp} className="icon-btn h-8 w-8" title="返回上级目录" aria-label="返回上级目录">
               <ArrowLeft />
-              上级
             </button>
           )}
           <button onClick={loadFiles} className="icon-btn h-8 w-8" title="刷新" aria-label="刷新">
