@@ -260,17 +260,27 @@ async function backupTelegramIndexToChat(
   apiBase = "https://api.telegram.org"
 ): Promise<{ ok: boolean; messageId?: number; error?: string }> {
   try {
-    // 从 telegram_files 表导出所有文件
-    const rows = await db.prepare(
-      "SELECT file_id, message_id, file_name, folder_path, size, download_url FROM telegram_files WHERE chat_id = ?"
-    ).bind(chatId).all<{
-      file_id: string;
-      message_id: number | null;
-      file_name: string;
-      folder_path: string | null;
-      size: number | null;
-      download_url: string | null;
-    }>();
+    // 从存储的 saving.objects 中导出所有文件（这是真正的当前文件列表）
+    const storage = await getStorageById(db, storageId);
+    if (!storage) return { ok: false, error: "Storage not found" };
+
+    const objects = (storage.saving?.objects as Record<string, any>) || {};
+    const files: Array<{ file_id: string; message_id: number; file_name: string; folder_path: string; size: number; download_url: string }> = [];
+
+    for (const [key, entry] of Object.entries(objects)) {
+      if (!entry || typeof entry !== "object" || entry.kind !== "file") continue;
+      const meta = entry.metadata || {};
+      const folderPath = meta.folderPath || (key.includes("/") ? key.substring(0, key.lastIndexOf("/")) : "");
+      const fileName = meta.fileName || key.split("/").pop() || key;
+      files.push({
+        file_id: meta.telegramFileId || key,
+        message_id: meta.telegramMessageId || 0,
+        file_name: fileName,
+        folder_path: folderPath,
+        size: entry.size || 0,
+        download_url: entry.downloadUrl || "",
+      });
+    }
 
     const safeName = (backupName || `backup-${storageId}`).replace(/[^a-zA-Z0-9_\-.一-龥]/g, "_");
     const backupData = {
@@ -279,14 +289,7 @@ async function backupTelegramIndexToChat(
       exportedAt: new Date().toISOString(),
       chatId,
       storageId,
-      files: (rows.results || []).map((r) => ({
-        file_id: r.file_id,
-        message_id: r.message_id,
-        file_name: r.file_name,
-        folder_path: r.folder_path || "",
-        size: r.size || 0,
-        download_url: r.download_url || "",
-      })),
+      files,
     };
 
     const jsonStr = JSON.stringify(backupData, null, 2);
@@ -313,8 +316,8 @@ async function backupTelegramIndexToChat(
     const newMessageId = json.result?.message_id;
 
     // 保存到 backupList 中，支持多个备份
-    const storage = await getStorageById(db, storageId);
-    const existingSaving = storage?.saving || {};
+    // storage 已在上方定义，直接使用
+    const existingSaving = storage.saving || {};
     const backupList: Array<{ messageId: number; name: string; date: string; fileCount: number }> =
       existingSaving.backupList || [];
     
@@ -652,26 +655,33 @@ export async function action({ request, context }: Route.ActionArgs) {
       }
     }
 
-    // 从 Telegram 聊天恢复索引（D1 丢失后的最后手段）
+    // 从 Telegram 聊天/备份恢复索引
     if (actionType === "restore-telegram-from-chat") {
-      const { storageId, backupMessageId } = body as { storageId?: number; backupMessageId?: number };
+      const { storageId, backupMessageId, targetStorageId } = body as { storageId?: number; backupMessageId?: number; targetStorageId?: number };
       if (!storageId) {
         return Response.json({ error: "storageId is required" }, { status: 400 });
       }
+      // storageId = 备份来源存储（用于获取 botToken/chatId）
+      // targetStorageId = 恢复到哪个存储（可选，默认恢复到来源存储）
+      const sourceStorage = await getStorageById(db, Number(storageId));
+      if (!sourceStorage || sourceStorage.type !== "telegram") {
+        return Response.json({ error: "Source storage not found or not Telegram type" }, { status: 400 });
+      }
+      const targetId = targetStorageId ? Number(targetStorageId) : Number(storageId);
+      const targetStorage = await getStorageById(db, targetId);
+      if (!targetStorage || targetStorage.type !== "telegram") {
+        return Response.json({ error: "Target storage not found or not Telegram type" }, { status: 400 });
+      }
+      const botToken = sourceStorage.config?.botToken;
+      const chatId = sourceStorage.config?.chatId || sourceStorage.config?.chat_id;
+      if (!botToken || !chatId) {
+        return Response.json({ error: "Missing botToken or chatId in source storage config" }, { status: 400 });
+      }
       try {
-        const storage = await getStorageById(db, Number(storageId));
-        if (!storage || storage.type !== "telegram") {
-          return Response.json({ error: "Storage not found or not Telegram type" }, { status: 400 });
-        }
-        const botToken = storage.config?.botToken;
-        const chatId = storage.config?.chatId || storage.config?.chat_id;
-        if (!botToken || !chatId) {
-          return Response.json({ error: "Missing botToken or chatId in storage config" }, { status: 400 });
-        }
         const result = await rebuildTelegramSavingFromChat(
-          db, String(botToken), String(chatId), Number(storageId),
+          db, String(botToken), String(chatId), targetId,
           backupMessageId,
-          storage.config?.apiBase
+          sourceStorage.config?.apiBase
         );
         return Response.json({ success: true, count: result.count, fromBackup: result.fromBackup, details: result.details });
       } catch (err) {
