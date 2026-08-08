@@ -118,13 +118,15 @@ function buildTelegramUploadNoticeText({
   const lines = [
     "文件上传完成",
     `名称: ${safeName}`,
-    `大小: ${formatBytes(fileSize)}`,
-    `下载链接: ${downloadUrl || "无"}`,
   ];
-  // 在消息中明确标明存储路径，以便恢复索引时重建文件夹结构
+  // 路径紧跟在名称下面
   if (storagePath) {
     lines.push(`路径: ${storagePath}`);
   }
+  lines.push(
+    `大小: ${formatBytes(fileSize)}`,
+    `下载链接: ${downloadUrl || "无"}`,
+  );
   return lines.join("\n");
 }
 
@@ -245,6 +247,10 @@ class RegistryBackedStorageClient {
         }
         const relativeName = key.startsWith(basePrefix) ? key.slice(basePrefix.length).replace(/\/$/, "") : key;
         if (!relativeName) {
+          continue;
+        }
+        // 跳过包含 "/" 的目录名，避免把子目录（如 a/b）显示在当前层级
+        if (relativeName.includes("/")) {
           continue;
         }
         prefixes.add(relativeName);
