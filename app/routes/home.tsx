@@ -4069,13 +4069,10 @@ export default function Home({ loaderData }: Route.ComponentProps) {
       <header className="border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shrink-0">
         <div className="px-4 py-2.5 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2 shrink-0">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-blue-600 text-white shadow-sm shadow-blue-600/20">
-              <Cloud className="h-[18px] w-[18px]" />
-            </span>
             <span className="text-lg font-bold tracking-tight">Minelibs</span>
           </div>
           <div className="flex-1 text-center min-w-0">
-            <span className="text-sm text-zinc-500 dark:text-zinc-400 truncate block">{siteTitle}</span>
+            <span className="text-sm text-zinc-500 dark:text-zinc-400 truncate block">存储管理</span>
           </div>
           <div className="flex items-center gap-1 shrink-0">
             <button
