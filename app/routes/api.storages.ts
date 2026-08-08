@@ -26,14 +26,18 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
   if (!chatId) return;
   try {
     const rows = await db
-      .prepare("SELECT file_id, message_id, file_name, size, download_url, updated_at FROM telegram_files WHERE chat_id = ? ORDER BY updated_at DESC")
+      .prepare("SELECT file_id, message_id, file_name, size, download_url, updated_at, storage_ids FROM telegram_files WHERE chat_id = ? ORDER BY updated_at DESC")
       .bind(String(chatId))
-      .all<{ file_id: string; message_id: number | null; file_name: string; size: number | null; download_url: string | null; updated_at: string }>();
+      .all<{ file_id: string; message_id: number | null; file_name: string; size: number | null; download_url: string | null; updated_at: string; storage_ids: string }>();
 
-    const objects: Record<string, any> = {};
+    // Build map of new objects from DB
+    const newObjects: Record<string, any> = {};
     for (const r of rows.results || []) {
-      const key = String(r.file_id || r.file_name || r.file_id);
-      objects[key] = {
+      const id = String(r.file_id || "");
+      const safeName = r.file_name || id;
+      // prefer readable key: file name; fallback to file id
+      const key = safeName || id;
+      newObjects[key] = {
         kind: "file",
         path: key,
         downloadUrl: r.download_url || "",
@@ -48,9 +52,30 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
       };
     }
 
-    if (Object.keys(objects).length > 0) {
-      await updateStorage(db, storageId, { saving: { objects } });
+    if (Object.keys(newObjects).length === 0) return;
+
+    // Merge with existing saving.objects if present
+    const existing = await getStorageById(db, storageId);
+    const existingObjects = (existing?.saving && existing.saving.objects) || {};
+    const merged: Record<string, any> = { ...existingObjects };
+
+    for (const [k, v] of Object.entries(newObjects)) {
+      if (!merged[k]) {
+        merged[k] = v;
+      } else {
+        // merge metadata/update fields without removing existing props
+        merged[k] = {
+          ...merged[k],
+          downloadUrl: v.downloadUrl || merged[k].downloadUrl,
+          contentType: v.contentType || merged[k].contentType,
+          size: v.size || merged[k].size,
+          lastModified: v.lastModified || merged[k].lastModified,
+          metadata: { ...(merged[k].metadata || {}), ...(v.metadata || {}) },
+        };
+      }
     }
+
+    await updateStorage(db, storageId, { saving: { objects: merged } });
   } catch (err) {
     console.error("Failed to rebuild telegram saving from db:", err);
   }
@@ -221,6 +246,20 @@ export async function action({ request, context }: Route.ActionArgs) {
     const { isAdmin } = await requireAuth(request, db, "admin");
     if (!isAdmin) {
       return Response.json({ error: "Unauthorized" }, { status: 403 });
+    }
+
+    // Admin manual restore action
+    if (actionType === "restore-telegram") {
+      const { storageId, chatId } = body as { storageId?: number; chatId?: string };
+      if (!storageId || !chatId) {
+        return Response.json({ error: "storageId and chatId are required" }, { status: 400 });
+      }
+      try {
+        await rebuildTelegramSavingFromDb(db, String(chatId), Number(storageId));
+        return Response.json({ success: true });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "restore failed" }, { status: 500 });
+      }
     }
 
     try {
