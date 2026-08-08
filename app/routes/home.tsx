@@ -3902,7 +3902,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   const [isDark, setIsDark] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  const siteTitle = loaderData.siteTitle || "CList";
+  const siteTitle = loaderData.siteTitle || "Minelibs";
   const siteAnnouncement = loaderData.siteAnnouncement || "";
   const chunkSizeMB = loaderData.chunkSizeMB || 50;
   const webdavEnabled = loaderData.webdavEnabled || false;
