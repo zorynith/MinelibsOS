@@ -190,10 +190,11 @@ class RegistryBackedStorageClient {
       }
       const key = String(rawKey);
       if (entry.kind === "directory") {
-        if (basePrefix && !key.startsWith(basePrefix)) {
+        // 只匹配以 basePrefix 开头的子目录，跳过自身
+        if (!key.startsWith(basePrefix)) {
           continue;
         }
-        const relativeName = key.startsWith(basePrefix) ? key.slice(basePrefix.length).replace(/\/$/, "") : key;
+        const relativeName = key.slice(basePrefix.length).replace(/\/$/, "");
         if (!relativeName) {
           continue;
         }
@@ -203,10 +204,10 @@ class RegistryBackedStorageClient {
         prefixes.add(relativeName);
         continue;
       }
-      if (basePrefix && !key.startsWith(basePrefix)) {
+      if (!key.startsWith(basePrefix)) {
         continue;
       }
-      const relativePath = key.startsWith(basePrefix) ? key.slice(basePrefix.length) : key;
+      const relativePath = key.slice(basePrefix.length);
       if (!relativePath || relativePath.includes("/")) {
         continue;
       }

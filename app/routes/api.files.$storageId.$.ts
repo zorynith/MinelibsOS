@@ -992,17 +992,14 @@ export async function action({ request, params, context }: Route.ActionArgs) {
 
         const keysToDelete = await listAll(path);
 
-        // Delete all objects
-        for (const key of keysToDelete) {
-          await withClientState(client, db, storageId, () => client.deleteObject(key));
-        }
-
-        // Also try to delete the folder object itself
-        try {
-          await withClientState(client, db, storageId, () => client.deleteObject(path.endsWith("/") ? path : path + "/"));
-        } catch {
-          // Folder object might not exist, ignore
-        }
+        // Delete all objects in one batch (avoid per-file persist overhead for large folders)
+        await withClientState(client, db, storageId, async () => {
+          for (const key of keysToDelete) {
+            await client.deleteObject(key);
+          }
+          // Also delete the folder object itself
+          await client.deleteObject(path.endsWith("/") ? path : path + "/");
+        });
 
         await logAudit(db, {
           action: "file.rmdir",
