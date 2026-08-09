@@ -1012,6 +1012,17 @@ export async function action({ request, params, context }: Route.ActionArgs) {
           // Delete the folder itself
           console.log("[rmdir] deleting folder:", folderKey);
           await client.deleteObject(folderKey);
+
+          // 验证：删除后 registry 中是否还有残留
+          const reg = (client as any).getState?.() as Record<string, any> | undefined;
+          const remaining = reg ? Object.keys(reg).filter(k => k === selfKey || k.startsWith(selfKey + "/")) : [];
+          if (remaining.length > 0) {
+            console.error("[rmdir] WARNING: keys still in registry after delete:", JSON.stringify(remaining));
+            // 强制清理残留
+            for (const k of remaining) {
+              (client as any).removeEntry?.(k);
+            }
+          }
         });
 
         await logAudit(db, {
