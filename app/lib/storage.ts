@@ -237,15 +237,17 @@ export async function updateStorage(
   }
   if (input.saving !== undefined) {
     // 深度合并 saving：保护 backupList 等不会被覆盖
+    // objects 字段特殊处理：如果 input.saving 明确提供了 objects，则完全替换
+    // （因为 Registry-backed 存储的 getStateUpdates 返回完整 registry，
+    //   展开运算无法表达"删除"，会导致已删除的条目被保留）
     const mergedSaving = {
       ...(existing.saving || {}),
       ...(input.saving || {}),
-      // 对 objects 做特殊合并
-      objects: {
-        ...(existing.saving?.objects || {}),
-        ...(input.saving?.objects || {}),
-      },
     };
+    // 如果 input 提供了 objects，用它完全替换（而非合并），否则保留现有的
+    if (input.saving.objects !== undefined) {
+      mergedSaving.objects = input.saving.objects;
+    }
     updates.push("saving_json = ?");
     values.push(JSON.stringify(mergedSaving));
   }
