@@ -899,6 +899,42 @@ function BackupManagerModal({
               </select>
             </div>
           )}
+
+          {/* 清理孤立目录 */}
+          <div className="rounded-lg p-4 border border-zinc-200 dark:border-zinc-700">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">清理孤立目录</div>
+                <div className="text-xs text-zinc-400 mt-1">删除 saving.objects 中没有子文件的空目录</div>
+              </div>
+              <button
+                onClick={async () => {
+                  if (!confirm("将清理所有没有子文件的空目录，确定继续？")) return;
+                  setLoading(true);
+                  try {
+                    const sid = selectedStorageId || telegramStorages[0]?.id;
+                    const res = await fetch("/api/storages", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "cleanup-orphan-dirs", storageId: sid }),
+                    });
+                    const d = await res.json() as any;
+                    if (res.ok) {
+                      alert(`清理完成，移除了 ${d.removed || 0} 个孤立目录。`);
+                      onRefresh();
+                    } else {
+                      alert(d.error || "清理失败");
+                    }
+                  } catch { alert("网络错误"); }
+                  finally { setLoading(false); }
+                }}
+                disabled={loading}
+                className="px-3 py-1.5 text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 transition disabled:opacity-50 whitespace-nowrap"
+              >
+                清理
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

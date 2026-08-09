@@ -789,6 +789,40 @@ export async function action({ request, context }: Route.ActionArgs) {
       return Response.json({ error: "Unauthorized" }, { status: 403 });
     }
 
+    // 清理 saving.objects 中孤立空目录（kind=directory 且没有对应子文件的目录）
+    if (actionType === "cleanup-orphan-dirs") {
+      const { storageId } = body as { storageId?: number };
+      if (!storageId) {
+        return Response.json({ error: "storageId is required" }, { status: 400 });
+      }
+      try {
+        const storage = await getStorageById(db, Number(storageId));
+        if (!storage || storage.type !== "telegram") {
+          return Response.json({ error: "Storage not found or not Telegram type" }, { status: 400 });
+        }
+        const objects = (storage.saving?.objects as Record<string, any>) || {};
+        const cleaned: Record<string, any> = {};
+        let removed = 0;
+        for (const [key, entry] of Object.entries(objects)) {
+          if (!entry || typeof entry !== "object") continue;
+          if (entry.kind === "directory") {
+            // 检查是否有文件以此目录为前缀
+            const dirPrefix = key + "/";
+            const hasChildren = Object.keys(objects).some(k => k.startsWith(dirPrefix) && k !== key);
+            if (!hasChildren) {
+              removed++;
+              continue; // 跳过孤立目录
+            }
+          }
+          cleaned[key] = entry;
+        }
+        await updateStorage(db, Number(storageId), { saving: { objects: cleaned } });
+        return Response.json({ success: true, removed });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "cleanup failed" }, { status: 500 });
+      }
+    }
+
     // Admin manual restore action (从 D1 telegram_files 表恢复)
     if (actionType === "restore-telegram") {
       const { storageId, chatId } = body as { storageId?: number; chatId?: string };
