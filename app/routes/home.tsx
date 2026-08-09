@@ -2615,12 +2615,20 @@ function FileBrowser({ storage, isAdmin, isDark, chunkSizeMB, customDomain }: { 
       try {
         const res = await fetch(`${apiFileUrl(storage.id, prefix)}?action=list`);
         if (res.ok) {
-          const data = (await res.json()) as { objects?: S3Object[] };
+          const data = (await res.json()) as { objects?: S3Object[]; prefixes?: string[] };
+          // 从 objects 中收集目录（S3 兼容存储）
           for (const obj of data.objects || []) {
             if (obj.isDirectory) {
-              folders.push(obj.key);
+              const dirKey = prefix ? `${prefix}/${obj.name}` : obj.key;
+              folders.push(dirKey);
               await listRecursive(obj.key);
             }
+          }
+          // 从 prefixes 中收集目录（Registry-backed 存储）
+          for (const p of data.prefixes || []) {
+            const dirKey = prefix ? `${prefix}/${p}` : p;
+            folders.push(dirKey);
+            await listRecursive(dirKey);
           }
         }
       } catch {

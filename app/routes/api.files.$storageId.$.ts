@@ -59,6 +59,10 @@ async function persistClientState(
   }
   await updateStorage(db, storageId, input);
 
+  // 调试日志
+  const registryKeys = updates.saving?.objects ? Object.keys(updates.saving.objects) : [];
+  console.log("[persistClientState] storageId:", storageId, "registry keys count:", registryKeys.length, "keys:", JSON.stringify(registryKeys.slice(0, 20)));
+
   // If this is a Telegram storage client, mirror object metadata into a global
   // telegram_files table so that files can be discovered even after storage
   // records are recreated or the saving_json is lost.
@@ -992,13 +996,22 @@ export async function action({ request, params, context }: Route.ActionArgs) {
 
         const keysToDelete = await listAll(path);
 
-        // Delete all objects in one batch (avoid per-file persist overhead for large folders)
+        console.log("[rmdir] path:", path, "keysToDelete:", JSON.stringify(keysToDelete));
+
+        // 确保目录自身在删除列表中（Registry-backed 存储的 listObjects 不会返回当前目录自身）
+        const folderKey = path.endsWith("/") ? path : path + "/";
+        const selfKey = folderKey.replace(/\/+$/, "").replace(/^\/+/, "").replace(/\/+/g, "/").trim();
+        console.log("[rmdir] selfKey:", selfKey, "folderKey:", folderKey);
+
+        // Delete all objects in one batch
         await withClientState(client, db, storageId, async () => {
           for (const key of keysToDelete) {
+            console.log("[rmdir] deleting:", key);
             await client.deleteObject(key);
           }
-          // Also delete the folder object itself
-          await client.deleteObject(path.endsWith("/") ? path : path + "/");
+          // Delete the folder itself
+          console.log("[rmdir] deleting folder:", folderKey);
+          await client.deleteObject(folderKey);
         });
 
         await logAudit(db, {
