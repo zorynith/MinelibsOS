@@ -4624,7 +4624,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                       {s.type === "telegram" && (
                         <button
                           onClick={() => setShowBackupManager(true)}
-                          className="icon-btn h-7 w-7 text-amber-500 hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-amber-500/10"
+                          className="icon-btn h-7 w-7 hover:bg-amber-50 hover:text-amber-500 dark:hover:bg-amber-500/10"
                           title="备份管理"
                           aria-label="备份管理"
                         >

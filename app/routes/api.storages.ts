@@ -30,6 +30,14 @@ import { getRequestMeta, logAudit } from "~/lib/audit";
  * 1. 优先使用备份文件（backupMessageId）
  * 2. 临时关闭 webhook → 用 getUpdates 拉取消息 → 恢复 webhook
  */
+/**
+ * 从 Telegram 聊天记录中恢复索引
+ * 这是 D1 丢失后的最后手段。
+ * 
+ * 恢复策略：
+ * 1. 优先使用备份文件（backupMessageId）
+ * 2. 临时关闭 webhook → 用 getUpdates 拉取消息 → 恢复 webhook
+ */
 async function rebuildTelegramSavingFromChat(
   db: D1Database,
   botToken: string,
@@ -138,8 +146,8 @@ async function rebuildTelegramSavingFromChat(
   }
 
   // 策略2: 临时关闭 webhook，用 getUpdates 拉取最近的消息
-  // 先获取当前 webhook 信息
   let originalWebhookUrl = "";
+  let webhookRestored = false;
   try {
     const whInfoRes = await fetch(`${apiUrl}/getWebhookInfo`);
     const whInfo = (await whInfoRes.json()) as Record<string, any>;
@@ -156,7 +164,6 @@ async function rebuildTelegramSavingFromChat(
   let restoredCount = 0;
   try {
     // 用 getUpdates 拉取消息（offset=-1 表示从最早的未确认更新开始）
-    // 先确认所有已有更新
     const ackRes = await fetch(`${apiUrl}/getUpdates?offset=-1&timeout=0`);
     const ackJson = (await ackRes.json()) as Record<string, any>;
     const updates = ackJson?.result as Array<any> || [];
@@ -167,10 +174,11 @@ async function rebuildTelegramSavingFromChat(
     for (const update of updates) {
       const msg = update.message || update.channel_post;
       if (!msg?.document?.file_id || !msg.caption) continue;
-      if (!msg.caption.includes("文件上传完成")) continue;
+      // 支持中英文通知消息
+      if (!msg.caption.includes("文件上传完成") && !msg.caption.includes("Upload completed")) continue;
 
-      const pathMatch = msg.caption.match(/路径:\s*(.+)/);
-      const urlMatch = msg.caption.match(/下载链接:\s*(.+)/);
+      const pathMatch = msg.caption.match(/路径:\s*(.+)/) || msg.caption.match(/Path:\s*(.+)/);
+      const urlMatch = msg.caption.match(/下载链接:\s*(.+)/) || msg.caption.match(/Download:\s*(.+)/);
       const storagePath = pathMatch?.[1]?.trim() || msg.document.file_name || "unknown";
       const downloadUrl = urlMatch?.[1]?.trim() || "";
       const fileId = msg.document.file_id;
@@ -224,17 +232,18 @@ async function rebuildTelegramSavingFromChat(
     restoredCount = Object.values(newObjects).filter((o: any) => o.kind === "file").length;
   } catch (err) {
     console.error("Failed to restore from getUpdates:", err);
-  }
-
-  // 恢复 webhook
-  if (originalWebhookUrl) {
-    try {
-      await fetch(`${apiUrl}/setWebhook`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: originalWebhookUrl }),
-      });
-    } catch {}
+  } finally {
+    // 确保 webhook 始终被恢复
+    if (originalWebhookUrl && !webhookRestored) {
+      try {
+        await fetch(`${apiUrl}/setWebhook`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: originalWebhookUrl }),
+        });
+        webhookRestored = true;
+      } catch {}
+    }
   }
 
   if (restoredCount === 0) {
@@ -316,7 +325,6 @@ async function backupTelegramIndexToChat(
     const newMessageId = json.result?.message_id;
 
     // 保存到 backupList 中，支持多个备份
-    // storage 已在上方定义，直接使用
     const existingSaving = storage.saving || {};
     const backupList: Array<{ messageId: number; name: string; date: string; fileCount: number }> =
       existingSaving.backupList || [];
@@ -333,6 +341,21 @@ async function backupTelegramIndexToChat(
       saving: { ...existingSaving, backupList, backupMessageId: newMessageId },
     });
 
+    // 同步写入 telegram_backups 表（防止 saving_json 丢失后备份列表无法恢复）
+    try {
+      await db.prepare(
+        `INSERT INTO telegram_backups (chat_id, message_id, name, file_count, storage_id)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(chat_id, message_id) DO UPDATE SET
+           name = excluded.name, file_count = excluded.file_count,
+           storage_id = excluded.storage_id`
+      )
+      .bind(String(chatId), newMessageId, backupName || `备份 ${backupList.length}`, backupData.files.length, storageId)
+      .run();
+    } catch (e) {
+      console.error("[backupTelegramIndexToChat] Failed to sync to telegram_backups table:", e);
+    }
+
     return { ok: true, messageId: newMessageId };
   } catch (err) {
     return { ok: false, error: String(err) };
@@ -341,26 +364,73 @@ async function backupTelegramIndexToChat(
 
 /**
  * 获取备份列表（指定存储）
+ * 优先从 telegram_backups 表读取，再合并 saving.backupList（确保不遗漏）
  */
 async function getTelegramBackupList(db: D1Database, storageId: number): Promise<Array<{ messageId: number; name: string; date: string; fileCount: number; storageId: number; storageName: string }>> {
   const storage = await getStorageById(db, storageId);
   if (!storage) return [];
-  const list = (storage.saving?.backupList as Array<any>) || [];
-  return list.map((b: any) => ({ ...b, storageId, storageName: storage.name }));
+
+  // 从 telegram_backups 表获取
+  const dbRows = await db
+    .prepare("SELECT message_id, name, file_count, created_at, storage_id FROM telegram_backups WHERE storage_id = ? ORDER BY created_at DESC")
+    .bind(storageId)
+    .all<{ message_id: number; name: string; file_count: number; created_at: string; storage_id: number }>();
+  const fromDb = (dbRows.results || []).map(r => ({
+    messageId: r.message_id,
+    name: r.name || "",
+    date: r.created_at || "",
+    fileCount: r.file_count || 0,
+    storageId: r.storage_id,
+    storageName: storage.name,
+  }));
+
+  // 从 saving.backupList 获取（补充可能不在表中的旧备份）
+  const savingList = (storage.saving?.backupList as Array<any>) || [];
+  const fromSaving = savingList.map((b: any) => ({ ...b, storageId, storageName: storage.name }));
+
+  // 合并去重（以 messageId 为 key，优先取 DB 中的数据）
+  const merged = new Map<number, { messageId: number; name: string; date: string; fileCount: number; storageId: number; storageName: string }>();
+  for (const b of fromSaving) merged.set(b.messageId, b);
+  for (const b of fromDb) merged.set(b.messageId, b);
+
+  return Array.from(merged.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
 
 /**
  * 获取所有 Telegram 存储的全局备份列表
+ * 优先从 telegram_backups 表读取
  */
 async function getAllTelegramBackupLists(db: D1Database): Promise<Array<{ messageId: number; name: string; date: string; fileCount: number; storageId: number; storageName: string }>> {
   const storages = await getAllStorages(db);
-  const allBackups: Array<{ messageId: number; name: string; date: string; fileCount: number; storageId: number; storageName: string }> = [];
+  const storageMap = new Map<number, { name: string }>();
   for (const s of storages) {
-    if (s.type === "telegram") {
-      const list = (s.saving?.backupList as Array<any>) || [];
-      for (const b of list) {
-        allBackups.push({ ...b, storageId: s.id, storageName: s.name });
-      }
+    if (s.type === "telegram") storageMap.set(s.id, { name: s.name });
+  }
+
+  // 从 telegram_backups 表获取所有备份
+  const dbRows = await db
+    .prepare("SELECT message_id, name, file_count, created_at, storage_id FROM telegram_backups ORDER BY created_at DESC")
+    .all<{ message_id: number; name: string; file_count: number; created_at: string; storage_id: number }>();
+  const fromDb = (dbRows.results || []).map(r => ({
+    messageId: r.message_id,
+    name: r.name || "",
+    date: r.created_at || "",
+    fileCount: r.file_count || 0,
+    storageId: r.storage_id,
+    storageName: storageMap.get(r.storage_id)?.name || `存储 #${r.storage_id}`,
+  }));
+
+  // 从 saving.backupList 补充
+  const allBackups: Array<{ messageId: number; name: string; date: string; fileCount: number; storageId: number; storageName: string }> = [];
+  const seen = new Set<number>();
+  for (const b of fromDb) { allBackups.push(b); seen.add(b.messageId); }
+  for (const s of storages) {
+    if (s.type !== "telegram") continue;
+    const list = (s.saving?.backupList as Array<any>) || [];
+    for (const b of list) {
+      if (seen.has(b.messageId)) continue;
+      seen.add(b.messageId);
+      allBackups.push({ ...b, storageId: s.id, storageName: s.name });
     }
   }
   allBackups.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -375,7 +445,7 @@ async function deleteTelegramBackup(db: D1Database, storageId: number, messageId
   if (!storage) return false;
   const list = (storage.saving?.backupList as Array<any>) || [];
   const newList = list.filter((b: any) => b.messageId !== messageId);
-  if (newList.length === list.length) return false;
+  if (newList.length === list.length && !storage.saving?.backupList) return false;
   
   // 如果删除的是当前默认备份，清除 backupMessageId
   const existingSaving = storage.saving || {};
@@ -384,6 +454,13 @@ async function deleteTelegramBackup(db: D1Database, storageId: number, messageId
     updateData.saving.backupMessageId = null;
   }
   await updateStorage(db, storageId, updateData);
+
+  // 同步删除 telegram_backups 表中的记录
+  try {
+    await db.prepare("DELETE FROM telegram_backups WHERE message_id = ?").bind(messageId).run();
+  } catch (e) {
+    console.error("[deleteTelegramBackup] Failed to delete from telegram_backups:", e);
+  }
   
   // 尝试删除 Telegram 上的备份消息
   const botToken = storage.config?.botToken;
@@ -469,7 +546,34 @@ async function rebuildTelegramSavingFromDb(db: D1Database, chatId: string | null
       }
     }
 
-    await updateStorage(db, storageId, { saving: { objects: merged } });
+    // 同时从 telegram_backups 表恢复 backupList
+    const existingSaving = existing?.saving || {};
+    let backupList: Array<{ messageId: number; name: string; date: string; fileCount: number }> =
+      existingSaving.backupList || [];
+    const seenBackupIds = new Set(backupList.map(b => b.messageId));
+
+    try {
+      const backupRows = await db
+        .prepare("SELECT message_id, name, file_count, created_at FROM telegram_backups WHERE storage_id = ? ORDER BY created_at DESC")
+        .bind(storageId)
+        .all<{ message_id: number; name: string; file_count: number; created_at: string }>();
+      for (const r of backupRows.results || []) {
+        if (seenBackupIds.has(r.message_id)) continue;
+        seenBackupIds.add(r.message_id);
+        backupList.push({
+          messageId: r.message_id,
+          name: r.name || "",
+          date: r.created_at || new Date().toISOString(),
+          fileCount: r.file_count || 0,
+        });
+      }
+      // 按日期倒序
+      backupList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    } catch (e) {
+      console.error("Failed to restore backupList from telegram_backups:", e);
+    }
+
+    await updateStorage(db, storageId, { saving: { objects: merged, backupList } });
   } catch (err) {
     console.error("Failed to rebuild telegram saving from db:", err);
   }

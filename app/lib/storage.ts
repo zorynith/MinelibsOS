@@ -362,6 +362,16 @@ export async function initDatabase(db: D1Database): Promise<void> {
       storage_ids TEXT DEFAULT '[]',
       updated_at TEXT DEFAULT (datetime('now'))
     )`,
+    `CREATE TABLE IF NOT EXISTS telegram_backups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      message_id INTEGER NOT NULL,
+      name TEXT NOT NULL DEFAULT '',
+      file_count INTEGER DEFAULT 0,
+      storage_id INTEGER,
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(chat_id, message_id)
+    )`,
   ];
   for (const stmt of ddl) {
     await db.prepare(stmt).run();
