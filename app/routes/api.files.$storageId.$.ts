@@ -71,6 +71,29 @@ async function persistClientState(
     const clientType = (client as any).type;
     if (clientType === "telegram" && updates.saving && updates.saving.objects && typeof updates.saving.objects === "object") {
       const objects = updates.saving.objects as Record<string, any>;
+
+      // 收集当前 registry 中所有文件的 file_id
+      const currentFileIds = new Set<string>();
+      for (const [rawKey, entry] of Object.entries(objects)) {
+        if (!entry || typeof entry !== "object" || entry.kind !== "file") continue;
+        const fid = entry.metadata?.telegramFileId;
+        if (fid) currentFileIds.add(String(fid));
+      }
+
+      // 删除 telegram_files 中已不在当前 registry 的记录
+      if (currentFileIds.size > 0) {
+        // D1 不支持 WHERE NOT IN 带变量列表，改用删除不在集合中的记录
+        const allRows = await db
+          .prepare("SELECT file_id FROM telegram_files WHERE chat_id = ?")
+          .bind(String((client as any).config?.chatId || (client as any).config?.chat_id || ""))
+          .all<{ file_id: string }>();
+        for (const row of allRows.results || []) {
+          if (!currentFileIds.has(row.file_id)) {
+            await db.prepare("DELETE FROM telegram_files WHERE file_id = ?").bind(row.file_id).run();
+          }
+        }
+      }
+
       for (const [rawKey, entry] of Object.entries(objects)) {
         if (!entry || typeof entry !== "object") continue;
         const metadata = entry.metadata || {};

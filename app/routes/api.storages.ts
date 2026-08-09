@@ -789,6 +789,44 @@ export async function action({ request, context }: Route.ActionArgs) {
       return Response.json({ error: "Unauthorized" }, { status: 403 });
     }
 
+    // 清理 telegram_files 表中不在 saving.objects 中的孤儿记录
+    if (actionType === "cleanup-telegram") {
+      const { storageId } = body as { storageId?: number };
+      if (!storageId) {
+        return Response.json({ error: "storageId is required" }, { status: 400 });
+      }
+      try {
+        const storage = await getStorageById(db, Number(storageId));
+        if (!storage || storage.type !== "telegram") {
+          return Response.json({ error: "Storage not found or not Telegram type" }, { status: 400 });
+        }
+        const objects = (storage.saving?.objects as Record<string, any>) || {};
+        const currentFileIds = new Set<string>();
+        for (const [, entry] of Object.entries(objects)) {
+          if (!entry || typeof entry !== "object" || entry.kind !== "file") continue;
+          const fid = entry.metadata?.telegramFileId;
+          if (fid) currentFileIds.add(String(fid));
+        }
+        let deleted = 0;
+        if (currentFileIds.size > 0) {
+          const chatId = storage.config?.chatId || storage.config?.chat_id || "";
+          const allRows = await db
+            .prepare("SELECT file_id FROM telegram_files WHERE chat_id = ?")
+            .bind(String(chatId))
+            .all<{ file_id: string }>();
+          for (const row of allRows.results || []) {
+            if (!currentFileIds.has(row.file_id)) {
+              await db.prepare("DELETE FROM telegram_files WHERE file_id = ?").bind(row.file_id).run();
+              deleted++;
+            }
+          }
+        }
+        return Response.json({ success: true, deleted });
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : "cleanup failed" }, { status: 500 });
+      }
+    }
+
     // Admin manual restore action (从 D1 telegram_files 表恢复)
     if (actionType === "restore-telegram") {
       const { storageId, chatId } = body as { storageId?: number; chatId?: string };
