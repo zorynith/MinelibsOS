@@ -4495,26 +4495,6 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     } catch { /* ignore */ }
   };
 
-  const handleCleanupTelegram = async (storageId: number) => {
-    if (!confirm("重建索引会从当前文件列表重建 telegram_files 表，清除孤儿记录。\n\n确定继续？")) return;
-    try {
-      const res = await fetch("/api/storages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "cleanup-telegram", storageId }),
-      });
-      const data = await res.json() as { success?: boolean; deleted?: number; error?: string };
-      if (res.ok) {
-        alert(`清理完成，删除了 ${data.deleted ?? 0} 条孤儿记录。`);
-        refreshStorages();
-      } else {
-        alert(data.error || "清理失败");
-      }
-    } catch {
-      alert("网络错误");
-    }
-  };
-
   return (
     <div className="h-screen overflow-hidden bg-zinc-100 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors flex flex-col">
       {/* Header */}
@@ -4650,24 +4630,14 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                         <BarChart3 />
                       </button>
                       {s.type === "telegram" && (
-                        <>
-                          <button
-                            onClick={() => setShowBackupManager(true)}
-                            className="icon-btn h-7 w-7 hover:bg-amber-50 hover:text-amber-500 dark:hover:bg-amber-500/10"
-                            title="备份管理"
-                            aria-label="备份管理"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                          </button>
-                          <button
-                            onClick={() => handleCleanupTelegram(s.id)}
-                            className="icon-btn h-7 w-7 hover:bg-green-50 hover:text-green-500 dark:hover:bg-green-500/10"
-                            title="重建索引（清理孤儿记录）"
-                            aria-label="重建索引"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                          </button>
-                        </>
+                        <button
+                          onClick={() => setShowBackupManager(true)}
+                          className="icon-btn h-7 w-7 hover:bg-amber-50 hover:text-amber-500 dark:hover:bg-amber-500/10"
+                          title="备份管理"
+                          aria-label="备份管理"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                        </button>
                       )}
                       <button
                         onClick={() => { setEditingStorage(s); setShowStorageForm(true); }}
