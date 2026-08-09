@@ -14,6 +14,26 @@ function createClient(storage: StorageClientLike): StorageClient {
   return createStorageClient(storage);
 }
 
+/**
+ * 判断路径是否为目录。
+ * 对于 Registry-backed 存储（Telegram/Discord/HF/GitHub），前端传的目录路径不带 /，
+ * 需要通过 registry 中的 kind 字段来判断。
+ */
+function isPathDirectory(client: StorageClient, path: string): boolean {
+  // 首先检查尾部 /
+  if (path.endsWith("/")) return true;
+  // 对于 Registry-backed 存储，检查 registry
+  const registryClient = client as unknown as { getState?: () => Record<string, any> };
+  if (typeof registryClient.getState === "function") {
+    const state = registryClient.getState();
+    // normalize: registry key 不带尾部 /
+    const normalized = path.replace(/^\/+|\/+$/g, "").replace(/\/+/g, "/").trim();
+    const entry = state[normalized];
+    if (entry?.kind === "directory") return true;
+  }
+  return false;
+}
+
 async function persistClientState(
   client: StorageClient,
   db: D1Database,
@@ -562,12 +582,12 @@ export async function action({ request, params, context }: Route.ActionArgs) {
         return Response.json({ error: "Invalid new name" }, { status: 400 });
       }
 
-      const isDirectory = path.endsWith("/");
+      const isDir = isPathDirectory(client, path);
       const cleanPath = path.replace(/\/$/, "");
       const parentPath = cleanPath.includes("/")
         ? cleanPath.substring(0, cleanPath.lastIndexOf("/") + 1)
         : "";
-      const newPath = parentPath + newName + (isDirectory ? "/" : "");
+      const newPath = parentPath + newName + (isDir ? "/" : "");
 
       const canDirectRename = typeof (client as { renameObject?: (path: string, name: string) => Promise<void> }).renameObject === "function";
       if (canDirectRename) {
@@ -584,7 +604,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
           userAgent: meta.userAgent,
           storageId,
           path,
-          detail: { newPath, isDirectory },
+          detail: { newPath, isDirectory: isDir },
         });
         await logAudit(db, {
           action: "file.move",
@@ -593,12 +613,12 @@ export async function action({ request, params, context }: Route.ActionArgs) {
           userAgent: meta.userAgent,
           storageId,
           path,
-          detail: { newPath, isDirectory },
+          detail: { newPath, isDirectory: isDir },
         });
         return Response.json({ success: true, newPath });
       }
 
-      if (isDirectory) {
+      if (isDir) {
         // Rename folder: copy all objects with new prefix, then delete old ones
         const listAll = async (prefix: string): Promise<string[]> => {
           const keys: string[] = [];
@@ -703,7 +723,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
         return Response.json({ error: "destPath is required" }, { status: 400 });
       }
 
-      const isDirectory = path.endsWith("/");
+      const isDir = isPathDirectory(client, path);
       const cleanPath = path.replace(/\/$/, "");
       const fileName = cleanPath.includes("/")
         ? cleanPath.substring(cleanPath.lastIndexOf("/") + 1)
@@ -711,7 +731,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
 
       // destPath is the target directory, fileName is preserved
       const targetDir = destPath.endsWith("/") ? destPath : (destPath ? destPath + "/" : "");
-      const newPath = targetDir + fileName + (isDirectory ? "/" : "");
+      const newPath = targetDir + fileName + (isDir ? "/" : "");
 
       const canDirectMove = typeof (client as { moveObject?: (path: string, destPath: string) => Promise<void> }).moveObject === "function";
       if (canDirectMove) {
@@ -728,12 +748,12 @@ export async function action({ request, params, context }: Route.ActionArgs) {
           userAgent: meta.userAgent,
           storageId,
           path,
-          detail: { newPath, isDirectory },
+          detail: { newPath, isDirectory: isDir },
         });
         return Response.json({ success: true, newPath });
       }
 
-      if (isDirectory) {
+      if (isDir) {
         // Move folder: copy all objects with new prefix, then delete old ones
         const listAll = async (prefix: string): Promise<string[]> => {
           const keys: string[] = [];
