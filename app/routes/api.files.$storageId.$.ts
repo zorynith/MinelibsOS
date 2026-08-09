@@ -945,12 +945,21 @@ export async function action({ request, params, context }: Route.ActionArgs) {
               }
             }
 
-            // Recursively list subfolders
+            // Recursively list subfolders using prefixes (Registry-backed storages
+            // return directories in prefixes, not in objects array)
+            for (const p of result.prefixes) {
+              const dirKey = p.endsWith("/") ? p : `${p}/`;
+              const fullDirKey = prefix ? `${prefix.replace(/\/+$/, "")}/${dirKey}` : dirKey;
+              const subKeys = await listAll(fullDirKey);
+              keys.push(...subKeys);
+              // Also add the folder itself
+              keys.push(fullDirKey);
+            }
+            // Also check objects for isDirectory (S3-compatible storages return dirs in objects)
             for (const obj of result.objects) {
               if (obj.isDirectory) {
                 const subKeys = await listAll(obj.key);
                 keys.push(...subKeys);
-                // Also add the folder itself (empty object with trailing slash)
                 keys.push(obj.key);
               }
             }
