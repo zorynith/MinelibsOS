@@ -119,7 +119,25 @@ async function rebuildTelegramSavingFromChat(
                 }
               }
               if (Object.keys(newObjects).length > 0) {
-                await updateStorage(db, storageId, { saving: { objects: newObjects } });
+                // 保存 objects，同时从 telegram_backups 恢复 backupList（确保不丢失）
+                const existingForBackup = await getStorageById(db, storageId);
+                const existingSavingForBackup = existingForBackup?.saving || {};
+                let restoredBackupList: Array<{ messageId: number; name: string; date: string; fileCount: number }> =
+                  existingSavingForBackup.backupList || [];
+                const seenIds = new Set(restoredBackupList.map(b => b.messageId));
+                try {
+                  const backupRows = await db
+                    .prepare("SELECT message_id, name, file_count, created_at FROM telegram_backups WHERE storage_id = ? ORDER BY created_at DESC")
+                    .bind(storageId)
+                    .all<{ message_id: number; name: string; file_count: number; created_at: string }>();
+                  for (const r of backupRows.results || []) {
+                    if (seenIds.has(r.message_id)) continue;
+                    seenIds.add(r.message_id);
+                    restoredBackupList.push({ messageId: r.message_id, name: r.name || "", date: r.created_at || "", fileCount: r.file_count || 0 });
+                  }
+                } catch {}
+                await updateStorage(db, storageId, { saving: { objects: newObjects, backupList: restoredBackupList } });
+
                 for (const f of backupData.files) {
                   await db.prepare(
                     `INSERT INTO telegram_files (file_id, chat_id, message_id, file_name, folder_path, size, download_url, storage_ids, updated_at)
@@ -227,7 +245,23 @@ async function rebuildTelegramSavingFromChat(
     }
 
     if (Object.keys(newObjects).length > 0) {
-      await updateStorage(db, storageId, { saving: { objects: newObjects } });
+      // 同时从 telegram_backups 恢复 backupList
+      const existingForS2 = await getStorageById(db, storageId);
+      let s2BackupList: Array<{ messageId: number; name: string; date: string; fileCount: number }> =
+        (existingForS2?.saving?.backupList as Array<any>) || [];
+      const s2Seen = new Set(s2BackupList.map(b => b.messageId));
+      try {
+        const s2Rows = await db
+          .prepare("SELECT message_id, name, file_count, created_at FROM telegram_backups WHERE storage_id = ? ORDER BY created_at DESC")
+          .bind(storageId)
+          .all<{ message_id: number; name: string; file_count: number; created_at: string }>();
+        for (const r of s2Rows.results || []) {
+          if (s2Seen.has(r.message_id)) continue;
+          s2Seen.add(r.message_id);
+          s2BackupList.push({ messageId: r.message_id, name: r.name || "", date: r.created_at || "", fileCount: r.file_count || 0 });
+        }
+      } catch {}
+      await updateStorage(db, storageId, { saving: { objects: newObjects, backupList: s2BackupList } });
     }
     restoredCount = Object.values(newObjects).filter((o: any) => o.kind === "file").length;
   } catch (err) {
@@ -445,7 +479,16 @@ async function deleteTelegramBackup(db: D1Database, storageId: number, messageId
   if (!storage) return false;
   const list = (storage.saving?.backupList as Array<any>) || [];
   const newList = list.filter((b: any) => b.messageId !== messageId);
-  if (newList.length === list.length && !storage.saving?.backupList) return false;
+  // 如果 saving 中没有此备份，仍然允许删除（可能来自 telegram_backups 表）
+  if (newList.length === list.length && !list.some((b: any) => b.messageId === messageId)) {
+    // saving 中没有记录，但尝试从 DB 表删除
+    try {
+      await db.prepare("DELETE FROM telegram_backups WHERE message_id = ?").bind(messageId).run();
+    } catch (e) {
+      console.error("[deleteTelegramBackup] Failed to delete from telegram_backups:", e);
+    }
+    return true;
+  }
   
   // 如果删除的是当前默认备份，清除 backupMessageId
   const existingSaving = storage.saving || {};
